@@ -1,0 +1,21 @@
+# === ROS / catkin ===
+build/
+devel/
+install/
+logs/
+.log/
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+
+# === Editor / OS ===
+.vscode/
+.idea/
+*.swp
+*~
+*.bag
+.DS_Store
+
+src/
