@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# camera_node.py
+# camera_node.py (antes)
+# window_tracking_controller.py (ahora)
+
 
 # -----------------------------------
 # Se encarga de recibir imágenes del dron Parrot Bebop, procesarlas mediante una clase 
@@ -32,7 +34,7 @@ sys.path.append(project_root)
 # ------------------------------------------------------------
 # Clase principal del nodo de cámara del dron
 # ------------------------------------------------------------
-from scripts.classes.camera_class import BebopCameraProcessor
+from scripts.perception.window_orange_detector import BebopCameraProcessor
 
 
 class BebopCameraNode:

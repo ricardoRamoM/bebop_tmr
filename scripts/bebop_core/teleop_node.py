@@ -16,7 +16,7 @@ from geometry_msgs.msg import Twist
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
 sys.path.append(project_root)
-from scripts.classes.bebop_movements import BebopMovements
+from scripts.control.bebop_movements import BebopMovements
 
 # ------------------------------
 # DICCIONARIOS DE TECLAS
@@ -76,6 +76,9 @@ class BebopTeleop:
         self.pub_takeoff = rospy.Publisher('bebop/takeoff', Empty, queue_size=10) # Despegue
         self.pub_land = rospy.Publisher('bebop/land', Empty, queue_size=10)       # Aterrizaje
         self.pub_camera = rospy.Publisher('bebop/camera_control', Twist, queue_size=1) # Cámara
+
+        self.mode_pub = rospy.Publisher('/bebop/set_mode', String, queue_size=10)
+        self.mission_select_pub = rospy.Publisher('/bebop/select_mission', String, queue_size=10)
 
         # Crea objeto para manejar movimientos de aterrizaje, despegue y los movimientos automaticos (usa BebopMovements)
         self.movements = BebopMovements(self.pub, self.pub_takeoff, self.pub_land, self.pub_camera)
@@ -203,10 +206,8 @@ class BebopTeleop:
 
             # Cambia a modo automático
             elif key == 'y':
-                self.mode_flag = 'automatic'
-                print("\n--- AUTOMATIC mode activated --- ")
-                print("Press 't' to enter teleop mode.")
-                self.movements.reset_twist()  # Detiene cualquier movimiento residual
+                self.mode_pub.publish("AUTONOMOUS")
+                print("Autonomous requested")
 
             # Ctrl+C → aterriza y sale
             elif key == '\x03':
@@ -214,6 +215,10 @@ class BebopTeleop:
                 self.movements.landing(self.mode_flag)
                 rospy.signal_shutdown("\nEnded by Ctrl-C")
                 break
+
+            elif key == 'm':
+                self.mission_select_pub.publish("WINDOW_TRACK")
+                print("Mission WINDOW_TRACK selected")
 
             # Si está en modo TELEOP, procesa las teclas manuales
             elif self.mode_flag == 'teleop':

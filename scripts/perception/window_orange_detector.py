@@ -1,5 +1,6 @@
 #!/usr/bin/env python3 
-#camera_class.py
+#window_orange_detector.py (ahora)
+#camera_class.py (antes)
 
 # -----------------------------------
 # Se encarga de procesar las imagenes
