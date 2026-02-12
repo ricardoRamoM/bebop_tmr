@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # bebop_teleop.py
 
-# Control manual y automático de un dron Parrot Bebop mediante teclado y ROS.
+# Control manual + disparador de misiones (Supervisor) de un dron Parrot Bebop mediante teclado y ROS.
 
 import os
 import sys
@@ -11,8 +11,9 @@ import termios
 import tty
 from std_msgs.msg import Empty, String
 from geometry_msgs.msg import Twist
+from bebop_core.mission_supervisor import MissionSupervisor
 
-# Importa la clase BebopMovements desde la carpeta "scripts/classes"
+# Importa la clase BebopMovements desde la carpeta "scripts/control"
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
 sys.path.append(project_root)
@@ -77,23 +78,20 @@ class BebopTeleop:
         self.pub_land = rospy.Publisher('bebop/land', Empty, queue_size=10)       # Aterrizaje
         self.pub_camera = rospy.Publisher('bebop/camera_control', Twist, queue_size=1) # Cámara
 
-        self.mode_pub = rospy.Publisher('/bebop/set_mode', String, queue_size=10)
-        self.mission_select_pub = rospy.Publisher('/bebop/select_mission', String, queue_size=10)
-
         # Crea objeto para manejar movimientos de aterrizaje, despegue y los movimientos automaticos (usa BebopMovements)
         self.movements = BebopMovements(self.pub, self.pub_takeoff, self.pub_land, self.pub_camera)
 
         # Seleccion del modo inicial 
-        self.mode_flag = 'telepop'  # Podría ser 'automatic' o 'teleop'
-
-        # Subscripción al tópico de comandos automáticos
-        rospy.Subscriber('/bebop/command_throttled', String, self.command_callback, queue_size=1)
+        self.mode_flag = 'teleop'  # Podría ser 'automatic' o 'teleop'
 
         # Guarda configuración del teclado (para restaurarla luego)
         self.settings = termios.tcgetattr(sys.stdin)
 
         # Posiciona la cámara al iniciar
         self.init_camera_position()
+
+        # Importar supervisor
+        self.supervisor = MissionSupervisor()
 
     # ----------------------------------------------------------
     # Inicializa la cámara mirando hacia abajo, y luego ajusta
@@ -107,73 +105,6 @@ class BebopTeleop:
         self.movements.camera_tilt(-5)   # Ajusta para ver hacia el frente, antes era 10
         rospy.sleep(2)
         rospy.loginfo("Inicio Ejecutado")
-
-
-    # ----------------------------------------------------------
-    # CALLBACK para modo AUTOMÁTICO
-    # Recibe comandos de texto desde /bebop/command_throttled
-    # ----------------------------------------------------------
-    def command_callback(self, msg):
-        # Debido a que si por alguna razon /bebop/command_throttled recibe un mensaje y no está en modo automatico
-        # se debio a algun error porque command throttle solo se ejecuta cuando '/bebop/command' cambia y esto cambia
-        # de acuerdo al procesamiento de la camara que decide moverse o no en MODO AUTOMATICO.
-
-        # Y como el callback se manda a llamar cada vez que hay algun cambio en el topico, por eso se pone esto, por seguridad
-        if self.mode_flag != 'automatic':
-            return  # Ignora si no está en modo automático
-
-        command = msg.data
-        rospy.loginfo(f"Comando recibido: {command}")
-
-        # Mapeo de comandos automáticos con métodos de movimiento
-        command_to_method_mapping = {
-            'w': 'forward',
-            'a': 'left',
-            'd': 'right',
-            's': 'backwards',
-            '+': 'up',
-            '-': 'down',
-            'q': 'turn_left',
-            'e': 'turn_right',
-        }
-
-        # Si en command_throttle recibe el 2 va a aterrizar
-        if command == '2':  # Aterriza
-            self.movements.landing(self.mode_flag)
-            rospy.loginfo("Landing...")
-
-        elif command in command_to_method_mapping:
-            # Llama al método correspondiente en BebopMovements
-            method_name = command_to_method_mapping[command] # Traduce la tecla/comando recibido a un nombre de función.
-            
-            # getattr(obj, 'nombre_metodo') devuelve el método del objeto cuyo nombre es el string dado. P.E.:
-                #method_name = 'forward'
-                #movement_method = getattr(self.movements, 'forward') 
-                # Ahora movement_method apunta a self.movements.forward
-            #Esto permite llamar a métodos dinámicamente sin usar un montón de if-else.
-            movement_method = getattr(self.movements, method_name)
-
-            rospy.loginfo(f"Moving: {method_name}")
-
-            #self en método -> Siempre se pasa automáticamente cuando llamas obj.metodo(...), 
-            # por lo que al usarlo solo colocas el resto de argumentos
-            movement_method(self.mode_flag)
-
-
-        # Si el command_throttle recibe algo como lo que dice cameraBindings: 'i', 'k', 'j', 'l'
-        # esto hará que se mueva como lo indica los valores predeterminados de cameraBindings  
-        elif command in cameraBindings:
-            # Se mueve si el mensaje recibido coincide con cameraBindings
-            pan, tilt = cameraBindings[command]
-            if pan != 0:
-                self.movements.camera_pan(pan)
-            if tilt != 0:
-                self.movements.camera_tilt(tilt)
-            rospy.loginfo(f"Moving cam: {command}")
-
-        else:
-            rospy.loginfo(f"Unknown command: {command}")
-
 
     # ----------------------------------------------------------
     # Lee una tecla sin esperar ENTER (modo raw del teclado)
@@ -197,17 +128,18 @@ class BebopTeleop:
         while not rospy.is_shutdown():
             key = self.getKey()
 
-            # Cambia a modo teleop (manual)
+            # Cambia a modo teleop (manual) Termina la mision
             if key == 't':
-                self.mode_flag = 'teleop'
-                print("\n--- TELEOP mode activated ---")
-                print(msg)
-                print("Press 'y' to enter automatic mode.")
+                self.supervisor.abort_mission()
 
             # Cambia a modo automático
             elif key == 'y':
-                self.mode_pub.publish("AUTONOMOUS")
-                print("Autonomous requested")
+                print("\n--- Starting mission ---")
+                self.supervisor.start_mission("orange_window")
+            
+            elif key == 'x':
+                print("\n--- Emergency stop ---")
+                self.supervisor.emergency()
 
             # Ctrl+C → aterriza y sale
             elif key == '\x03':
@@ -216,9 +148,8 @@ class BebopTeleop:
                 rospy.signal_shutdown("\nEnded by Ctrl-C")
                 break
 
-            elif key == 'm':
-                self.mission_select_pub.publish("WINDOW_TRACK")
-                print("Mission WINDOW_TRACK selected")
+            elif self.supervisor.is_running():
+                continue
 
             # Si está en modo TELEOP, procesa las teclas manuales
             elif self.mode_flag == 'teleop':

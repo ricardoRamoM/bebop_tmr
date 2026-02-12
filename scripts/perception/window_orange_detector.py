@@ -3,28 +3,52 @@
 #camera_class.py (antes)
 
 # -----------------------------------
-# Se encarga de procesar las imagenes
-# La clase devuelve:
-#   Una imagen procesada (por ejemplo con contornos o marcas).
-#   Un comando (cadena de texto) que se publica en /bebop/command.
+# Clase de Percepción – Window Detection
 #
-# Este script define una clase llamada BebopCameraProcessor que procesa 
-#  imágenes capturadas por la cámara de un dron Parrot Bebop.
-
-# Su objetivo es detectar cuadrados naranjas usando dos métodos complementarios:
-#   - YOLO (red neuronal entrenada) → detección general de objetos.
-#   - OpenCV (procesamiento clásico de imágenes) → detección por color y forma.
-# Después, combina los resultados de ambos métodos para:
-#   - Dibujar los objetos detectados en la imagen,
-#   - Determinar el centro del cuadrado más grande,
-#   - Calcular si el cuadrado está a la izquierda, derecha o centro respecto al campo de visión,
-# Y en base a eso, genera un comando de movimiento para el dron:
-#   - "a" → moverse a la izquierda
-#   - "d" → moverse a la derecha
-#   - "w" → avanzar
+# Este script define una clase encargada exclusivamente del procesamiento
+# de imágenes provenientes de la cámara del dron Parrot Bebop.
 #
-#   Solamente usa realmente yolo porque la mascara para open cv de momento esta para color azul pero al detectar naranja,
-#   no lo hace bien, por eso se opta por usar solo YOLO que funciona correctamente.
+# RESPONSABILIDAD:
+#   - Detectar la ventana/cuadrado naranja en la imagen.
+#   - Calcular información geométrica relevante.
+#   - Devolver datos estructurados a la misión.
+#
+# IMPORTANTE:
+#   Este nodo NO toma decisiones de movimiento.
+#   No publica comandos de vuelo.
+#   No contiene lógica de misión.
+#
+# FUNCIONAMIENTO:
+#
+# Utiliza YOLO (red neuronal entrenada) para detectar la ventana naranja.
+# Aunque originalmente se contemplaba un método adicional con OpenCV
+# basado en segmentación por color y forma, actualmente se utiliza
+# únicamente YOLO debido a que ofrece mayor robustez y precisión
+# en la detección del objeto.
+#
+# La clase procesa cada frame y devuelve:
+#
+#   - Imagen procesada con detecciones dibujadas.
+#   - Booleano indicando si la ventana fue detectada.
+#   - Centro del bounding box (cx, cy).
+#   - Área del bounding box.
+#   - Dimensiones del frame.
+#
+# SALIDA:
+#   La información se publica como datos estructurados
+#   (por ejemplo en un mensaje custom o diccionario),
+#   que luego es utilizada por el nodo de misión.
+#
+# ARQUITECTURA (Nueva Estructura):
+#
+#   Percepción  →  SOLO detecta
+#   Misión      →  Decide qué hacer con esa detección
+#   Control     →  Ejecuta los movimientos del dron
+#
+# Esta separación permite:
+#   - Escalar a nuevas misiones fácilmente.
+#   - Cambiar lógica sin tocar visión.
+#   - Cumplir arquitectura modular estilo competencia (TMR-ready).
 # -----------------------------------
 
 import os
@@ -66,7 +90,7 @@ class BebopCameraProcessor:
             raise e # Re-lanza el error para detener la ejecución
 
     # ---------------------------
-    # PROCESAMIENTO PRINCIPAL
+    # PROCESAMIENTO PRINCIPAL que se manda 
     # ---------------------------
     def process_image(self, cv_image):
         # Obtain hedght and widht to get center
@@ -74,21 +98,30 @@ class BebopCameraProcessor:
         self.center = (width // 2, height // 2) # Centro de la imagen
 
         # Detect squares using YOLO. 
-        annotated_image, command_yolo = self.detect_with_yolo(cv_image.copy())
+        annotated_image, yolo_detected, yolo_cx = self.detect_with_yolo(cv_image.copy())
 
         # Detect squares using OpenCV
-        processed_image, command_opencv = self.detect_square(cv_image.copy())
+        processed_image, cv_detected, cv_cx = self.detect_square(cv_image.copy())
 
         # Combine both detections. Combina visualmente ambas detecciones con una ponderacion de 50% cada una
         combined_image = cv2.addWeighted(annotated_image, 0.5, processed_image, 0.5, 0)
 
-        # Decied command due to detection (prioritize OpenCV). Prioriza el comando de OpenCV (más preciso en color) 
-        if command_opencv:
-            command = command_opencv 
+        # Priorizar OpenCV si detecta
+        if cv_detected:
+            detected = True
+            cx = cv_cx
+        elif yolo_detected:
+            detected = True
+            cx = yolo_cx
         else:
-            command = command_yolo
+            detected = False
+            cx = None
 
-        return combined_image, command
+        return combined_image, {
+            "detected": detected,
+            "cx": cx,
+            "center_x": self.center[0]
+        }
 
     # ---------------------------
     # DETECCIÓN CON YOLO
@@ -104,7 +137,8 @@ class BebopCameraProcessor:
         # Variables
         biggest_area = 0
         square_coords = None
-        command = None
+        detected = False
+        cx = None
 
         boxes = results[0].boxes  # Obtain detected boxes  # Obtiene las cajas detectadas
         
@@ -135,24 +169,18 @@ class BebopCameraProcessor:
             cY = (y1 + y2) // 2
             cv2.circle(annotated_image, (cX, cY), 5, (0, 0, 255), -1) # Punto ROJO. Centro del cuadrado
 
-            # Determina comando de movimiento según posición del cuadrado
-            # Decide command based on position. 
-            if cX < self.center[0] - 25:
-                command = "a"  # Move to the left
-            elif cX > self.center[0] + 25:
-                command = "d"  # Move to the right
-            else:
-                command = "w"  # Move forward
-
             # Draw biggest square
             cv2.rectangle(annotated_image, (x1, y1), (x2, y2), (0, 255, 0), 2) # VERDE
+
+            detected = True
+
         else:
             print("Couln't find valid square with YOLO")
 
         # Draw image center. # Dibuja el centro de la imagen (referencia)
         cv2.circle(annotated_image, self.center, 5, (255, 0, 0), -1) # Punto AZUL
 
-        return annotated_image, command
+        return annotated_image, detected, cx
 
 
 
@@ -197,7 +225,8 @@ class BebopCameraProcessor:
         # Variables
         biggest_area = 0
         square_contour = None
-        command = None
+        detected = False
+        cx = None
 
         # Iterate over the contours to find squares. Recorre todos los contornos detectados
         for contour in contours:
@@ -224,14 +253,8 @@ class BebopCameraProcessor:
                 cY = int(M["m01"] / M["m00"])
                 # Draw circle in the center
                 cv2.circle(cv_image, (cX, cY), 5, (0, 0, 255), -1) # Punto Rojo
+                detected = True
 
-                # Decide command based on position
-                if cX < self.center[0] - 25:
-                    command = "a"  # Move left
-                elif cX > self.center[0] + 25:
-                    command = "d"  # Move right
-                else:
-                    command = "w"  # Go forward
             else:
                 print("Could not obtain square's center")
         else:
@@ -240,4 +263,4 @@ class BebopCameraProcessor:
         # Obtain image center. Dibuja el centro de la imagen (referencia)
         cv2.circle(cv_image, self.center, 5, (255, 0, 0), -1) # Punto Azul
 
-        return cv_image, command
+        return cv_image, detected, cx
