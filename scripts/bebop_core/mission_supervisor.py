@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-import rospy
-from std_msgs.msg import String, Bool, Empty
-from enum import Enum
-import subprocess
-import time
+# mission_supervisor.py
 
-class State(Enum):
+import rospy
+import subprocess
+from enum import Enum
+from std_msgs.msg import String
+
+
+class GlobalState(Enum):
     IDLE = 0
     TAKING_OFF = 1
     HOVER_STABILIZE = 2
@@ -16,123 +18,130 @@ class State(Enum):
 
 class MissionSupervisor:
 
-    def __init__(self):
+    def __init__(self, movements):
 
-        rospy.init_node("mission_supervisor")
+        self.movements = movements
+        self.state = GlobalState.IDLE
 
-        self.state = State.IDLE
         self.current_process = None
         self.current_mission = None
+
         self.mission_start_time = None
-        self.max_mission_time = 20.0  # segundos (ajústalo según TMR)
+        self.max_mission_time = 30.0  # Timeout global
 
-        # Publishers
-        self.takeoff_pub = rospy.Publisher('/bebop/takeoff', Empty, queue_size=1)
-        self.land_pub = rospy.Publisher('/bebop/land', Empty, queue_size=1)
+        # Suscriptor al estado de misión
+        rospy.Subscriber("/mission/status", String, self.mission_status_callback)
 
-        # Subscribers
-        rospy.Subscriber('/bebop/mode', String, self.mode_callback)
-        rospy.Subscriber('/bebop/emergency', Bool, self.emergency_callback)
-        rospy.Subscriber('/bebop/mission_status', String, self.mission_status_callback)
+        rospy.loginfo("Mission Supervisor Ready")
 
-        self.rate = rospy.Rate(10)
 
-        rospy.loginfo("Mission Supervisor FSM started")
-        self.run()
+    # =====================================================
+    # INTERFAZ EXTERNA (desde teleop)
+    # =====================================================
 
-    # ===============================
-    # MAIN LOOP
-    # ===============================
-    def run(self):
-        while not rospy.is_shutdown():
+    def start_mission(self, mission_name):
 
-            if self.state == State.IDLE:
-                pass
+        if self.state != GlobalState.IDLE:
+            rospy.logwarn("Cannot start mission: not in IDLE")
+            return
 
-            elif self.state == State.TAKING_OFF:
-                self.handle_takeoff()
+        self.current_mission = mission_name
+        self.state = GlobalState.TAKING_OFF
 
-            elif self.state == State.HOVER_STABILIZE:
-                self.handle_stabilize()
 
-            elif self.state == State.MISSION_RUNNING:
-                self.check_mission_timeout()
+    def abort_mission(self):
 
-            elif self.state == State.LANDING:
-                self.handle_landing()
+        if self.state == GlobalState.IDLE:
+            return
 
-            elif self.state == State.EMERGENCY:
-                self.handle_emergency()
+        rospy.logwarn("Mission aborted")
+        self.stop_mission()
+        self.state = GlobalState.LANDING
 
-            self.rate.sleep()
 
-    # ===============================
+    def emergency(self):
+
+        rospy.logerr("EMERGENCY")
+        self.stop_mission()
+        self.state = GlobalState.EMERGENCY
+
+
+    def is_running(self):
+        return self.state in [
+            GlobalState.TAKING_OFF,
+            GlobalState.HOVER_STABILIZE,
+            GlobalState.MISSION_RUNNING
+        ]
+
+
+    # =====================================================
+    # FSM UPDATE
+    # =====================================================
+
+    def update(self):
+
+        if self.state == GlobalState.IDLE:
+            return
+
+        elif self.state == GlobalState.TAKING_OFF:
+            self.handle_takeoff()
+
+        elif self.state == GlobalState.HOVER_STABILIZE:
+            self.handle_hover()
+
+        elif self.state == GlobalState.MISSION_RUNNING:
+            self.check_timeout()
+
+        elif self.state == GlobalState.LANDING:
+            self.handle_landing()
+
+        elif self.state == GlobalState.EMERGENCY:
+            self.handle_emergency()
+
+
+    # =====================================================
     # STATE HANDLERS
-    # ===============================
+    # =====================================================
 
     def handle_takeoff(self):
-        rospy.loginfo("State: TAKING_OFF")
-        self.takeoff_pub.publish()
-        rospy.sleep(3.0)  # tiempo para despegar
-        self.state = State.HOVER_STABILIZE
+        rospy.loginfo("TAKING OFF")
+        self.movements.initial_takeoff("automatic")
+        self.hover_start_time = rospy.Time.now()
+        self.state = GlobalState.HOVER_STABILIZE
 
-    def handle_stabilize(self):
-        rospy.loginfo("State: HOVER_STABILIZE")
-        rospy.sleep(2.0)  # estabilización
-        self.launch_mission()
-        self.mission_start_time = rospy.Time.now()
-        self.state = State.MISSION_RUNNING
+
+    def handle_hover(self):
+        if (rospy.Time.now() - self.hover_start_time).to_sec() > 2.0:
+            rospy.loginfo("HOVER STABLE → Launching mission")
+            self.launch_mission()
+            self.mission_start_time = rospy.Time.now()
+            self.state = GlobalState.MISSION_RUNNING
+
 
     def handle_landing(self):
-        rospy.loginfo("State: LANDING")
-        self.land_pub.publish()
-        rospy.sleep(3.0)
-        self.state = State.IDLE
-        rospy.loginfo("Back to IDLE")
+        rospy.loginfo("LANDING")
+        self.movements.landing("automatic")
+        self.state = GlobalState.IDLE
+
 
     def handle_emergency(self):
-        rospy.logwarn("State: EMERGENCY")
-        self.stop_mission()
-        self.land_pub.publish()
-        rospy.sleep(3.0)
-        self.state = State.IDLE
+        rospy.logerr("FORCED LANDING (EMERGENCY)")
+        self.movements.landing("automatic")
+        self.state = GlobalState.IDLE
 
-    # ===============================
-    # CALLBACKS
-    # ===============================
 
-    def mode_callback(self, msg):
-
-        if "mission" in msg.data and self.state == State.IDLE:
-            self.current_mission = msg.data
-            self.state = State.TAKING_OFF
-
-        elif msg.data == "manual":
-            rospy.loginfo("Manual mode selected")
-
-    def emergency_callback(self, msg):
-        if msg.data:
-            self.state = State.EMERGENCY
-
-    def mission_status_callback(self, msg):
-        if msg.data == "completed" and self.state == State.MISSION_RUNNING:
-            rospy.loginfo("Mission completed internally")
-            self.state = State.LANDING
-
-    # ===============================
-    # MISSION CONTROL
-    # ===============================
+    # =====================================================
+    # MISSION MANAGEMENT
+    # =====================================================
 
     def launch_mission(self):
-
-        if self.current_process:
-            self.current_process.terminate()
 
         rospy.loginfo(f"Launching mission: {self.current_mission}")
 
         self.current_process = subprocess.Popen(
-            ["rosrun", "bebop_control", self.current_mission + ".py"]
+            ["rosrun", "bebop_tmr", f"{self.current_mission}.py"]
         )
+
 
     def stop_mission(self):
 
@@ -140,17 +149,66 @@ class MissionSupervisor:
             self.current_process.terminate()
             self.current_process = None
 
-    def check_mission_timeout(self):
+
+    def mission_status_callback(self, msg):
+
+        if msg.data == "done":
+            rospy.loginfo("Mission reported DONE")
+            self.stop_mission()
+            self.state = GlobalState.LANDING
+
+        elif msg.data == "failed":
+            rospy.logwarn("Mission reported FAILED")
+            self.stop_mission()
+            self.state = GlobalState.LANDING
+
+
+    def check_timeout(self):
+
         if self.mission_start_time is None:
             return
 
         elapsed = (rospy.Time.now() - self.mission_start_time).to_sec()
 
         if elapsed > self.max_mission_time:
-            rospy.logwarn("MISSION TIMEOUT REACHED")
+            rospy.logwarn("MISSION TIMEOUT")
             self.stop_mission()
-            self.state = State.LANDING
+            self.state = GlobalState.LANDING
 
+
+# =====================================================
+# TEST NODE (solo para validación independiente)
+# VERSIÓN CORRECTA PARA VALIDAR SUPERVISOR SOLO
+# =====================================================
 
 if __name__ == "__main__":
-    MissionSupervisor()
+
+    rospy.init_node("mission_supervisor_test")
+
+    # ============================
+    # Mock de movimientos
+    # ============================
+
+    class DummyMovements:
+        def initial_takeoff(self, mode):
+            rospy.loginfo("[MOCK] Takeoff")
+
+        def landing(self, mode):
+            rospy.loginfo("[MOCK] Landing")
+
+    movements = DummyMovements()
+    supervisor = MissionSupervisor(movements)
+
+    rate = rospy.Rate(10)  # 10 Hz
+
+    rospy.loginfo("Supervisor test running...")
+
+    # Lanzar misión automáticamente después de 2 segundos
+    rospy.sleep(2)
+    supervisor.start_mission("mission_square")
+
+    while not rospy.is_shutdown():
+        supervisor.update()
+        rate.sleep()
+
+

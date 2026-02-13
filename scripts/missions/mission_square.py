@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#mission_square.py
 import rospy
 from std_msgs.msg import String
 
@@ -11,7 +12,7 @@ def main():
     rospy.sleep(8.0)
 
     # Cuando termina condición interna:
-    status_pub.publish("completed")
+    status_pub.publish("done")
 
 if __name__ == "__main__":
     main()

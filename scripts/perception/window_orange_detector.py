@@ -63,12 +63,13 @@ from ultralytics import YOLO # Librería del modelo YOLOv8
 # Obtiene el directorio actual del archivo
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Sube un nivel y entra a la carpeta 'classes'
-project_root = os.path.abspath(os.path.join(current_dir, '..', 'classes'))
-
 # Ruta al modelo YOLO entrenado (best.pt). To download the model, download from Github. 
-model_path = os.path.join(project_root, 'models', 'best.pt')
+model_path = os.path.join(current_dir, 'models', 'best.pt')
 
+print("Loading model YOLO from:", model_path)
+
+if not os.path.exists(model_path):
+    raise FileNotFoundError(f"Model was not found in the directory: {model_path}")
 
 # ---------------------------
 # CLASE PRINCIPAL
@@ -166,6 +167,7 @@ class BebopCameraProcessor:
         if square_coords:
             x1, y1, x2, y2 = square_coords
             cX = (x1 + x2) // 2
+            cx = cX
             cY = (y1 + y2) // 2
             cv2.circle(annotated_image, (cX, cY), 5, (0, 0, 255), -1) # Punto ROJO. Centro del cuadrado
 
@@ -250,6 +252,7 @@ class BebopCameraProcessor:
             M = cv2.moments(square_contour)
             if M["m00"] != 0:
                 cX = int(M["m10"] / M["m00"])
+                cx = cX
                 cY = int(M["m01"] / M["m00"])
                 # Draw circle in the center
                 cv2.circle(cv_image, (cX, cY), 5, (0, 0, 255), -1) # Punto Rojo
@@ -264,3 +267,36 @@ class BebopCameraProcessor:
         cv2.circle(cv_image, self.center, 5, (255, 0, 0), -1) # Punto Azul
 
         return cv_image, detected, cx
+    
+# =====================================================
+# TEST NODE (solo para validación independiente)
+# =====================================================
+
+#if __name__ == "__main__":
+#    import rospy
+#    from sensor_msgs.msg import Image
+#    from cv_bridge import CvBridge
+#
+#    rospy.init_node("window_orange_detector_test")
+#
+#    bridge = CvBridge()
+#    detector = BebopCameraProcessor()
+#
+#   def image_callback(msg):
+#       try:
+#            frame = bridge.imgmsg_to_cv2(msg, "bgr8")
+#        except Exception as e:
+#            rospy.logerr(f"CvBridge error: {e}")
+#            return
+#
+#        processed_image, data = detector.process_image(frame)
+#
+#        cv2.imshow("Window Detector Test", processed_image)
+#        cv2.waitKey(1)
+#        if data["detected"]:
+#            rospy.loginfo(f"Detected | cx: {data['cx']}")
+#
+#    rospy.Subscriber("/bebop/image_raw", Image, image_callback)
+#
+#    rospy.loginfo("Window detector test running...")
+#    rospy.spin()
