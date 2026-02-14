@@ -7,7 +7,8 @@ from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2
 
-from control.bebop_movements import BebopMovements
+from  bebop_tmr.control.bebop_movements import BebopMovements
+
 from perception.window_orange_detector import BebopCameraProcessor
 
 

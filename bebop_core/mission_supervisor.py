@@ -49,9 +49,12 @@ class MissionSupervisor:
         self.state = GlobalState.TAKING_OFF
 
 
-    def abort_mission(self):
-
-        if self.state == GlobalState.IDLE:
+    def abort_mission(self):        
+        if self.state not in [
+            GlobalState.TAKING_OFF,
+            GlobalState.HOVER_STABILIZE,
+            GlobalState.MISSION_RUNNING
+        ]:
             return
 
         rospy.logwarn("Mission aborted")
@@ -123,11 +126,18 @@ class MissionSupervisor:
         self.movements.landing("automatic")
         self.state = GlobalState.IDLE
 
+        self.current_mission = None
+        self.mission_start_time = None
+
 
     def handle_emergency(self):
         rospy.logerr("FORCED LANDING (EMERGENCY)")
         self.movements.landing("automatic")
         self.state = GlobalState.IDLE
+
+        self.current_mission = None
+        self.mission_start_time = None
+
 
 
     # =====================================================
@@ -152,15 +162,19 @@ class MissionSupervisor:
 
     def mission_status_callback(self, msg):
 
+        # Solo reaccionar si realmente hay misión corriendo
+        if self.state != GlobalState.MISSION_RUNNING:
+            return
+
         if msg.data == "done":
             rospy.loginfo("Mission reported DONE")
             self.stop_mission()
             self.state = GlobalState.LANDING
 
         elif msg.data == "failed":
-            rospy.logwarn("Mission reported FAILED")
+            rospy.logwarn("Mission reported FAILED → EMERGENCY")
             self.stop_mission()
-            self.state = GlobalState.LANDING
+            self.state = GlobalState.EMERGENCY
 
 
     def check_timeout(self):

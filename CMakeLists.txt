@@ -206,10 +206,12 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-
 catkin_install_python(PROGRAMS
-  scripts/missions/mission_orange_window.py
-  scripts/missions/mission_square.py
+  missions/mission_orange_window.py
+  missions/mission_square.py
+  bebop_core/mission_supervisor.py
+  bebop_core/teleop_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
+
 
