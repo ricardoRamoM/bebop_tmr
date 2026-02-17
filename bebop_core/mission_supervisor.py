@@ -41,13 +41,17 @@ class MissionSupervisor:
 
     def start_mission(self, mission_name):
 
+        rospy.logwarn(f"Current state before mission: {self.state}")
+
         if self.state != GlobalState.IDLE:
             rospy.logwarn("Cannot start mission: not in IDLE")
             return
 
         self.current_mission = mission_name
-        self.state = GlobalState.TAKING_OFF
-
+        self.launch_mission()
+        self.mission_start_time = rospy.Time.now()
+        self.state = GlobalState.MISSION_RUNNING
+        #self.state = GlobalState.TAKING_OFF 
 
     def abort_mission(self):        
         if self.state not in [
@@ -59,7 +63,7 @@ class MissionSupervisor:
 
         rospy.logwarn("Mission aborted")
         self.stop_mission()
-        self.state = GlobalState.LANDING
+        self.state = GlobalState.IDLE
 
 
     def emergency(self):
@@ -195,34 +199,34 @@ class MissionSupervisor:
 # VERSIÓN CORRECTA PARA VALIDAR SUPERVISOR SOLO
 # =====================================================
 
-if __name__ == "__main__":
+#if __name__ == "__main__":
 
-    rospy.init_node("mission_supervisor_test")
+#    rospy.init_node("mission_supervisor_test")
 
     # ============================
     # Mock de movimientos
     # ============================
 
-    class DummyMovements:
-        def initial_takeoff(self, mode):
-            rospy.loginfo("[MOCK] Takeoff")
+#    class DummyMovements:
+#        def initial_takeoff(self, mode):
+#            rospy.loginfo("[MOCK] Takeoff")
 
-        def landing(self, mode):
-            rospy.loginfo("[MOCK] Landing")
+#        def landing(self, mode):
+#            rospy.loginfo("[MOCK] Landing")
 
-    movements = DummyMovements()
-    supervisor = MissionSupervisor(movements)
+#    movements = DummyMovements()
+#    supervisor = MissionSupervisor(movements)
 
-    rate = rospy.Rate(10)  # 10 Hz
+#    rate = rospy.Rate(10)  # 10 Hz
 
-    rospy.loginfo("Supervisor test running...")
+#    rospy.loginfo("Supervisor test running...")
 
     # Lanzar misión automáticamente después de 2 segundos
-    rospy.sleep(2)
-    supervisor.start_mission("mission_square")
+#    rospy.sleep(2)
+#    supervisor.start_mission("mission_square")
 
-    while not rospy.is_shutdown():
-        supervisor.update()
-        rate.sleep()
+#    while not rospy.is_shutdown():
+#        supervisor.update()
+#        rate.sleep()
 
 

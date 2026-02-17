@@ -3,10 +3,18 @@
 import rospy
 from std_msgs.msg import String
 
+import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
+sys.path.append(project_root)
+
 def main():
     rospy.init_node("mission_square")
 
-    status_pub = rospy.Publisher('/bebop/mission_status', String, queue_size=1)
+    status_pub = rospy.Publisher('/mission/status', String, queue_size=1)
+
 
     # Lógica de misión aquí
     rospy.sleep(8.0)

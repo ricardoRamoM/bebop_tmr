@@ -57,7 +57,7 @@ class BebopMovements:
         self.up(mode_flag)
         self.up(mode_flag)
         self.up(mode_flag)
-        # gira un poco y cre eso hace que no se empiece a mover de forma autonoma en lo que aun no ajusta la camara. FAKE
+        # gira un poco y creo eso hace que no se empiece a mover de forma autonoma en lo que aun no ajusta la camara. FAKE
         #self.turn_right(mode_flag) 
         #self.turn_left(mode_flag) 
         rospy.sleep(1)

@@ -283,7 +283,7 @@ class BebopCameraProcessor:
 #    detector = BebopCameraProcessor()
 #
 #   def image_callback(msg):
-#       try:
+#        try:
 #            frame = bridge.imgmsg_to_cv2(msg, "bgr8")
 #        except Exception as e:
 #            rospy.logerr(f"CvBridge error: {e}")

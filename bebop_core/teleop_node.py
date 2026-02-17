@@ -140,9 +140,12 @@ class BebopTeleop:
 
             # INICIAR MISIÓN
             if key == 'y':
-                print("\n--- Starting Mission ---")
-                self.supervisor.start_mission("orange_window")
-
+                print("\n--- Starting Mission Square---")
+                self.supervisor.start_mission("mission_square_1") #orange_window
+            elif key == 'u':
+                self.supervisor.start_mission("mission_orange_window")
+            elif key == 'o':
+                self.supervisor.start_mission("mission_orange_window_modified")
             # ABORTAR MISIÓN (volver a manual)
             elif key == 't':
                 print("\n--- Mission Aborted. Teleop Activated ---")

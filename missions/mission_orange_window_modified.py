@@ -28,7 +28,7 @@ class MissionOrangeWindow:
 
     def __init__(self):
 
-        rospy.init_node('mission_orange_window')
+        rospy.init_node('mission_orange_window_modified')
         
         # ========================
         # Publishers
