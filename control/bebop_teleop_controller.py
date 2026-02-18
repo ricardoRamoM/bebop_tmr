@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-# bebop_movements.py
-# Clase para controlar movimientos básicos del dron Parrot Bebop usando ROS 
-
-# Más que nada es para el mode_flag = automatic
+# bebop_teleop_controller.py
+# Clase para controlar movimientos básicos del dron Parrot Bebop usando ROS para el teleop
 
 import rospy
 from geometry_msgs.msg import Twist

@@ -16,7 +16,7 @@ from geometry_msgs.msg import Twist
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
 sys.path.append(project_root)
-from control.bebop_movements import BebopMovements
+from control.bebop_teleop_controller import BebopMovements
 from bebop_core.mission_supervisor import MissionSupervisor
 
 # ------------------------------
@@ -121,6 +121,14 @@ class BebopTeleop:
     # ----------------------------------------------------------
     def getKey(self):
         tty.setraw(sys.stdin.fileno())
+        
+        #rlist, _, _ = select.select([sys.stdin], [], [], 0.02)
+        #key = ''
+        #if rlist:
+        #    key = sys.stdin.read(1)
+        #termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.settings)
+        #return key
+
         select.select([sys.stdin], [], [], 0)
         try:
             key = sys.stdin.read(1)
@@ -135,6 +143,8 @@ class BebopTeleop:
     # BUCLE PRINCIPAL: lee las teclas y actúa según el modo
     # ----------------------------------------------------------
     def run(self):
+        rate = rospy.Rate(50)  # 20 Hz
+
         while not rospy.is_shutdown():
             key = self.getKey()
 
@@ -143,14 +153,16 @@ class BebopTeleop:
                 print("\n--- Starting Mission Square---")
                 self.supervisor.start_mission("mission_square_1") #orange_window
             elif key == 'u':
-                self.supervisor.start_mission("mission_orange_window")
+                self.supervisor.start_mission("mission_square_2")
             elif key == 'o':
                 self.supervisor.start_mission("mission_orange_window_modified")
+            
             # ABORTAR MISIÓN (volver a manual)
             elif key == 't':
-                print("\n--- Mission Aborted. Teleop Activated ---")
-                self.supervisor.abort_mission()
-
+            #    print("\n--- Mission Aborted. Teleop Activated ---")
+            #    self.supervisor.abort_mission()
+                print("\nTakeoff → TELEOP")
+                self.supervisor.start_teleop()
             # EMERGENCIA            
             elif key == 'x':
                 print("\n--- Emergency stop ---")
@@ -164,15 +176,15 @@ class BebopTeleop:
                 break
 
             # CONTROL MANUAL (SOLO SI NO HAY MISIÓN ACTIVA)
-            elif not self.supervisor.is_running():
+            elif self.supervisor.is_teleop_active():
                 
                 if key == '1':
-                    self.movements.initial_takeoff("teleop")
-                    print("\nTaking off...")
+                    self.supervisor.start_teleop()
+                    print("\nTakeoff → TELEOP")
 
                 elif key == '2':
-                    self.movements.landing("teleop")
-                    print("\nLanding...")
+                    self.supervisor.request_landing()
+                    print("\nLanding requested")
 
                 elif key in moveBindings:
                     # Publica el vector Twist para moverse con los valores obtenidos de moveBindings
@@ -201,7 +213,9 @@ class BebopTeleop:
                 pass  # Si está en automático, no se hace nada con teclas
 
             # ACTUALIZAR SUPERVISOR
-            self.supervisor.update()
+            #self.supervisor.update()
+
+            rate.sleep()
 
 # ===========================================================
 # EJECUCIÓN PRINCIPAL

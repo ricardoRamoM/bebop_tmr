@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#mission_square_1.py
 
 import rospy
 import math
@@ -89,7 +90,7 @@ if __name__ == "__main__":
 
     try:
 
-        side = 0.25
+        side = 0.40
 
         # Lado 1
         move(vel_pub, "adelante", side)

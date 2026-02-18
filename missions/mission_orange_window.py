@@ -18,7 +18,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
 sys.path.append(project_root)
 
-from control.bebop_movements import BebopMovements
+from control.bebop_teleop_controller import BebopMovements
 from perception.window_orange_detector import BebopCameraProcessor
 
 # =====================================================

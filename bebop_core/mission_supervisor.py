@@ -9,9 +9,9 @@ from std_msgs.msg import String
 
 class GlobalState(Enum):
     IDLE = 0
-    TAKING_OFF = 1
-    HOVER_STABILIZE = 2
-    MISSION_RUNNING = 3
+    TAKEOFF = 1
+    MISSION = 2
+    TELEOP = 3
     LANDING = 4
     EMERGENCY = 5
 
@@ -27,10 +27,23 @@ class MissionSupervisor:
         self.current_mission = None
 
         self.mission_start_time = None
-        self.max_mission_time = 30.0  # Timeout global
+        self.max_mission_time = 10.0  # Timeout global
 
         # Suscriptor al estado de misión
         rospy.Subscriber("/mission/status", String, self.mission_status_callback)
+        #self.state_pub = rospy.Publisher("/supervisor/state", String, queue_size=1)
+        self.state_pub = rospy.Publisher(
+            "/supervisor/state",
+            String,
+            queue_size=1,
+            latch=True
+        )
+
+        self.timer = rospy.Timer(rospy.Duration(0.05), self.timer_callback)
+
+        self.last_state = self.state 
+
+        self.state_start_time = None
 
         rospy.loginfo("Mission Supervisor Ready")
 
@@ -46,58 +59,56 @@ class MissionSupervisor:
         if self.state != GlobalState.IDLE:
             rospy.logwarn("Cannot start mission: not in IDLE")
             return
-
         self.current_mission = mission_name
-        self.launch_mission()
-        self.mission_start_time = rospy.Time.now()
-        self.state = GlobalState.MISSION_RUNNING
-        #self.state = GlobalState.TAKING_OFF 
+        self.state = GlobalState.TAKEOFF
 
-    def abort_mission(self):        
-        if self.state not in [
-            GlobalState.TAKING_OFF,
-            GlobalState.HOVER_STABILIZE,
-            GlobalState.MISSION_RUNNING
-        ]:
+    def start_teleop(self):
+        if self.state != GlobalState.IDLE:
+            rospy.logwarn("Cannot start teleop: not in IDLE")
             return
 
+        self.state = GlobalState.TAKEOFF
+
+    def request_landing(self):
+        if self.state in [GlobalState.MISSION, GlobalState.TELEOP, GlobalState.TAKEOFF]:
+            self.state = GlobalState.LANDING
+
+
+    def abort_mission(self):  
         rospy.logwarn("Mission aborted")
-        self.stop_mission()
-        self.state = GlobalState.IDLE
+
+        if self.state == GlobalState.MISSION:
+            self.stop_mission()
+            self.state = GlobalState.LANDING
 
 
     def emergency(self):
-
         rospy.logerr("EMERGENCY")
         self.stop_mission()
         self.state = GlobalState.EMERGENCY
 
 
-    def is_running(self):
-        return self.state in [
-            GlobalState.TAKING_OFF,
-            GlobalState.HOVER_STABILIZE,
-            GlobalState.MISSION_RUNNING
-        ]
+    def is_teleop_active(self):
+        return self.state == GlobalState.TELEOP
 
 
     # =====================================================
-    # FSM UPDATE
+    # FSM 
     # =====================================================
 
     def update(self):
 
         if self.state == GlobalState.IDLE:
-            return
+            pass
 
-        elif self.state == GlobalState.TAKING_OFF:
+        elif self.state == GlobalState.TAKEOFF:
             self.handle_takeoff()
 
-        elif self.state == GlobalState.HOVER_STABILIZE:
-            self.handle_hover()
-
-        elif self.state == GlobalState.MISSION_RUNNING:
+        elif self.state == GlobalState.MISSION:
             self.check_timeout()
+
+        elif self.state == GlobalState.TELEOP:
+            pass
 
         elif self.state == GlobalState.LANDING:
             self.handle_landing()
@@ -105,43 +116,64 @@ class MissionSupervisor:
         elif self.state == GlobalState.EMERGENCY:
             self.handle_emergency()
 
+        self.publish_state()  # 🔥 Siempre publica estado actual
+
 
     # =====================================================
     # STATE HANDLERS
     # =====================================================
 
     def handle_takeoff(self):
-        rospy.loginfo("TAKING OFF")
-        self.movements.initial_takeoff("automatic")
-        self.hover_start_time = rospy.Time.now()
-        self.state = GlobalState.HOVER_STABILIZE
+        if self.state_start_time is None:
+            rospy.loginfo("TAKEOFF")
+            self.movements.initial_takeoff("automatic")
+            self.state_start_time = rospy.Time.now()
+            return
+        
+        elapsed = (rospy.Time.now() - self.state_start_time).to_sec()   
 
+        if elapsed > 3.0:
 
-    def handle_hover(self):
-        if (rospy.Time.now() - self.hover_start_time).to_sec() > 2.0:
-            rospy.loginfo("HOVER STABLE → Launching mission")
-            self.launch_mission()
-            self.mission_start_time = rospy.Time.now()
-            self.state = GlobalState.MISSION_RUNNING
+            if self.current_mission:
+                self.launch_mission()
+                self.mission_start_time = rospy.Time.now()
+                self.state = GlobalState.MISSION
+            else:
+                self.state = GlobalState.TELEOP
+
+            self.state_start_time = None
 
 
     def handle_landing(self):
-        rospy.loginfo("LANDING")
-        self.movements.landing("automatic")
-        self.state = GlobalState.IDLE
+        if self.state_start_time is None:
+            rospy.loginfo("LANDING")
+            self.movements.landing("automatic")
+            self.state_start_time = rospy.Time.now()
+            return
 
-        self.current_mission = None
-        self.mission_start_time = None
+        elapsed = (rospy.Time.now() - self.state_start_time).to_sec()
+
+        if elapsed > 3.0:
+            self.current_mission = None
+            self.mission_start_time = None
+            self.state = GlobalState.IDLE
+            self.state_start_time = None
 
 
     def handle_emergency(self):
-        rospy.logerr("FORCED LANDING (EMERGENCY)")
-        self.movements.landing("automatic")
-        self.state = GlobalState.IDLE
+        if self.state_start_time is None:
+            rospy.logerr("FORCED LANDING (EMERGENCY)")
+            self.movements.landing("automatic")
+            self.state_start_time = rospy.Time.now()
+            return
 
-        self.current_mission = None
-        self.mission_start_time = None
+        elapsed = (rospy.Time.now() - self.state_start_time).to_sec()
 
+        if elapsed > 3.0:
+            self.current_mission = None
+            self.mission_start_time = None
+            self.state = GlobalState.IDLE
+            self.state_start_time = None
 
 
     # =====================================================
@@ -149,7 +181,6 @@ class MissionSupervisor:
     # =====================================================
 
     def launch_mission(self):
-
         rospy.loginfo(f"Launching mission: {self.current_mission}")
 
         self.current_process = subprocess.Popen(
@@ -158,7 +189,6 @@ class MissionSupervisor:
 
 
     def stop_mission(self):
-
         if self.current_process:
             self.current_process.terminate()
             self.current_process = None
@@ -167,13 +197,14 @@ class MissionSupervisor:
     def mission_status_callback(self, msg):
 
         # Solo reaccionar si realmente hay misión corriendo
-        if self.state != GlobalState.MISSION_RUNNING:
+        if self.state != GlobalState.MISSION:
             return
 
         if msg.data == "done":
             rospy.loginfo("Mission reported DONE")
             self.stop_mission()
             self.state = GlobalState.LANDING
+            #self.state = GlobalState.IDLE
 
         elif msg.data == "failed":
             rospy.logwarn("Mission reported FAILED → EMERGENCY")
@@ -182,8 +213,7 @@ class MissionSupervisor:
 
 
     def check_timeout(self):
-
-        if self.mission_start_time is None:
+        if not self.mission_start_time:
             return
 
         elapsed = (rospy.Time.now() - self.mission_start_time).to_sec()
@@ -192,6 +222,15 @@ class MissionSupervisor:
             rospy.logwarn("MISSION TIMEOUT")
             self.stop_mission()
             self.state = GlobalState.LANDING
+
+    def publish_state(self):
+        if self.state != self.last_state:
+            rospy.loginfo(f"STATE → {self.state.name}")
+            self.state_pub.publish(self.state.name)
+            self.last_state = self.state
+
+    def timer_callback(self, event):
+        self.update()
 
 
 # =====================================================
