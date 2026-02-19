@@ -22,7 +22,7 @@ sleep = 0.5
 
 class BebopMovements:
     
-    def __init__(self, pub, pub_takeoff, pub_land, pub_camera):
+    def __init__(self, pub_cmd_vel, pub_takeoff, pub_land, pub_camera):
         """
         Inicializa la clase con los publicadores necesarios.
         - pub: publisher para enviar comandos de velocidad (Twist)
@@ -30,7 +30,7 @@ class BebopMovements:
         - pub_land: publisher para el aterrizaje (Empty)
         - pub_camera: publisher para el control de cámara (Twist)
         """
-        self.pub = pub
+        self.pub_cmd_vel = pub_cmd_vel
         self.pub_takeoff = pub_takeoff
         self.pub_land = pub_land
         self.pub_camera = pub_camera
@@ -76,7 +76,7 @@ class BebopMovements:
         rospy.sleep(sleep)
 
         # Envía mensaje de velocidad cero que previamente con reset_twist se asigno, de igual forma se hace dentro de reset_twist
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
 
         # Publica mensaje Empty para iniciar aterrizaje
@@ -102,9 +102,11 @@ class BebopMovements:
         self.twist.angular.z = 0.0
 
         # Publica el comando de velocidad cero
-        self.pub.publish(self.twist) 
+        self.pub_cmd_vel.publish(self.twist) 
         rospy.sleep(sleep)
-
+    
+    def publish_twist(self):
+        self.cmd_vel_pub.publish(self.twist)
 
 
 # ------------------------------------------ MOVIMIENTOS BÁSICOS DEL DRON ------------------------------------------
@@ -123,7 +125,7 @@ class BebopMovements:
 
         # Movimiento hacia adelante (eje x positivo) con 100% de velocidad 
         self.twist.linear.x = 1
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
 
         #self.twist.linear.x = 1       
@@ -152,7 +154,7 @@ class BebopMovements:
         # self.pub.publish(self.twist)
         # rospy.sleep(sleep)
         # self.twist.linear.z = 0.2
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
         self.reset_twist()
 
@@ -165,7 +167,7 @@ class BebopMovements:
 
         # Movimiento lateral hacia la izquierda (y positivo)
         self.twist.linear.y = 0.6
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
         self.reset_twist()
 
@@ -178,7 +180,7 @@ class BebopMovements:
 
         # Movimiento lateral hacia la derecha (y negativo)
         self.twist.linear.y = -0.6
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
         self.reset_twist()
 
@@ -191,7 +193,7 @@ class BebopMovements:
 
         # Movimiento hacia atrás (x negativo)
         self.twist.linear.x = -0.5
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
         self.reset_twist()
 
@@ -204,7 +206,7 @@ class BebopMovements:
 
         # Sube (z positivo)
         self.twist.linear.z = 1
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
         self.reset_twist()
 
@@ -217,7 +219,7 @@ class BebopMovements:
 
         # Baja (z negativo)
         self.twist.linear.z = -0.5
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
         self.reset_twist()
 
@@ -231,7 +233,7 @@ class BebopMovements:
 
         # Gira sobre su eje hacia la izquierda (angular.z positivo)
         self.twist.angular.z = 0.5
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
         self.reset_twist()
 
@@ -244,7 +246,7 @@ class BebopMovements:
         
         # Gira hacia la derecha (angular.z negativo)
         self.twist.angular.z = -0.3
-        self.pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
         rospy.sleep(sleep)
         self.reset_twist()
 

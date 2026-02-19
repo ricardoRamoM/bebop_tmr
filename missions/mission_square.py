@@ -21,7 +21,7 @@ def main():
     rospy.sleep(8.0)
 
     # Cuando termina condición interna:
-    status_pub.publish("done")
+    #status_pub.publish("done")
 
 if __name__ == "__main__":
     main()

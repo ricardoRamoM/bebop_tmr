@@ -76,14 +76,14 @@ class BebopTeleop:
         rospy.init_node('teleop_control')
 
         # Publicadores para los distintos comandos del dron
-        self.pub = rospy.Publisher('bebop/cmd_vel', Twist, queue_size=1)          # Movimiento
+        self.pub_cmd_vel = rospy.Publisher('bebop/cmd_vel', Twist, queue_size=1)          # Movimiento
         self.pub_takeoff = rospy.Publisher('bebop/takeoff', Empty, queue_size=10) # Despegue
         self.pub_land = rospy.Publisher('bebop/land', Empty, queue_size=10)       # Aterrizaje
         self.pub_camera = rospy.Publisher('bebop/camera_control', Twist, queue_size=1) # Cámara
 
         # Movements (bajo nivel)
         self.movements = BebopMovements(
-            self.pub,
+            self.pub_cmd_vel,
             self.pub_takeoff,
             self.pub_land,
             self.pub_camera
@@ -154,8 +154,12 @@ class BebopTeleop:
                 self.supervisor.start_mission("mission_square_1") #orange_window
             elif key == 'u':
                 self.supervisor.start_mission("mission_square_2")
+            elif key == 'p':
+                self.supervisor.start_mission("mission_square")
             elif key == 'o':
                 self.supervisor.start_mission("mission_orange_window_modified")
+            elif key == 'h':
+                self.supervisor.start_mission("mission_orange_window")
             
             # ABORTAR MISIÓN (volver a manual)
             elif key == 't':
@@ -171,6 +175,7 @@ class BebopTeleop:
             # Ctrl+C → aterriza y sale
             elif key == '\x03':
                 print("\nLanding before exiting...")
+                self.supervisor.emergency()
                 self.movements.landing("teleop")
                 rospy.signal_shutdown("\nEnded by Ctrl-C")
                 break
@@ -193,7 +198,7 @@ class BebopTeleop:
                     self.movements.twist.linear.y = y
                     self.movements.twist.linear.z = z
                     self.movements.twist.angular.z = th
-                    self.pub.publish(self.movements.twist)
+                    self.pub_cmd_vel.publish(self.movements.twist)
 
                 elif key in cameraBindings:
                     # Control manual de la cámara
@@ -207,7 +212,7 @@ class BebopTeleop:
                 else:
                     # Si se presiona una tecla desconocida → detiene el dron en ese punto, mas no lo aterriza
                     self.movements.reset_twist()
-                    self.pub.publish(self.movements.twist)
+                    self.pub_cmd_vel.publish(self.movements.twist)
 
             else:
                 pass  # Si está en automático, no se hace nada con teclas

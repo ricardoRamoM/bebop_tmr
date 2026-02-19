@@ -12,7 +12,7 @@ from std_msgs.msg import String
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
 sys.path.append(project_root)
-from control.bebop_autonomous_controller import BebopMissionsController
+from control.bebop_missions_controller import BebopMissionsController
 
 if __name__ == "__main__":
 
@@ -21,6 +21,8 @@ if __name__ == "__main__":
     status_pub = rospy.Publisher("/mission/status", String, queue_size=1)
 
     drone = BebopMissionsController()
+    
+    drone.wait_for_odometry()
 
     rospy.sleep(2)
 
@@ -30,7 +32,6 @@ if __name__ == "__main__":
 
         lado = 0.40
 
-        drone.takeoff()
         rospy.sleep(2)
 
         # Cuadrado sin girar
@@ -40,8 +41,6 @@ if __name__ == "__main__":
         drone.izquierda(lado)
 
         drone.hold_position(2)
-
-        drone.land()
 
         rospy.loginfo("Cuadrado completado")
         status_pub.publish("done")

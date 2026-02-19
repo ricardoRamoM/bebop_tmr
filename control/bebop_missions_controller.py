@@ -31,12 +31,12 @@ class BebopMissionsController:
     def __init__(self):
 
         # Publishers
-        self.cmd_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
+        self.vel_pub = rospy.Publisher("/bebop/cmd_vel", Twist, queue_size=10)
         self.takeoff_pub = rospy.Publisher("/bebop/takeoff", Empty, queue_size=1)
         self.land_pub = rospy.Publisher("/bebop/land", Empty, queue_size=1)
 
         # Subscriber
-        rospy.Subscriber("/odom", Odometry, self.odom_callback)
+        rospy.Subscriber("/bebop/odom", Odometry, self.odom_callback)
 
         # Variables de estado
         self.current_position = None
@@ -80,7 +80,7 @@ class BebopMissionsController:
         rospy.sleep(3)
 
     def stop(self):
-        self.cmd_pub.publish(Twist())
+        self.vel_pub.publish(Twist())
         rospy.sleep(0.2)
 
     def get_current_pose(self):
@@ -132,7 +132,7 @@ class BebopMissionsController:
             else:
                 twist.linear.z = velocity
 
-            self.cmd_pub.publish(twist)
+            self.vel_pub.publish(twist)
             self.rate.sleep()
 
         self.stop()
@@ -181,7 +181,7 @@ class BebopMissionsController:
             vel = max(min(vel, 0.6), -0.6)
 
             twist.angular.z = vel
-            self.cmd_pub.publish(twist)
+            self.vel_pub.publish(twist)
             self.rate.sleep()
 
         self.stop()
@@ -198,12 +198,21 @@ class BebopMissionsController:
 
         while not rospy.is_shutdown():
 
-            self.cmd_pub.publish(twist)
+            self.vel_pub.publish(twist)
 
             if (rospy.Time.now() - start_time).to_sec() > duration:
                 break
 
             self.rate.sleep()
+            
+
+    def wait_for_odometry(self):
+        rospy.loginfo("Waiting for odometry...")
+
+        while self.current_position is None and not rospy.is_shutdown():
+            rospy.sleep(0.1)
+
+        rospy.loginfo("Odometry ready ✔")
 
 
 # ======================================

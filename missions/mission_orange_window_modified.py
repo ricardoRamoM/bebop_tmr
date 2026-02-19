@@ -136,21 +136,21 @@ class MissionOrangeWindow:
         # =========================
 
         # Dibujar info en pantalla
-        cv2.putText(processed_image,
-                    f"Inference: {inference_time*1000:.1f} ms",
-                    (20, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0),
-                    2)
+        #cv2.putText(processed_image,
+        #            f"Inference: {inference_time*1000:.1f} ms",
+        #            (20, 30),
+        #            cv2.FONT_HERSHEY_SIMPLEX,
+        #            0.7,
+        #            (0, 255, 0),
+        #            2)
 
-        cv2.putText(processed_image,
-                    f"ROS time: {rospy.Time.now().to_sec():.2f}",
-                    (20, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 255, 0),
-                    2)
+        #cv2.putText(processed_image,
+        #            f"ROS time: {rospy.Time.now().to_sec():.2f}",
+        #            (20, 60),
+        #            cv2.FONT_HERSHEY_SIMPLEX,
+        #            0.6,
+        #            (255, 255, 0),
+        #            2)
 
         self.debug_image = processed_image
 
@@ -253,16 +253,18 @@ class MissionOrangeWindow:
 
             if not self.finished:
 
+                # Muestra ka camara
+                #if self.debug_image is not None:
+                #    cv2.imshow("Orange Detection", self.debug_image)
+                #    cv2.waitKey(1)
+                    
                 # 1️⃣ Procesar última imagen disponible
                 self.process_latest_image()
 
                 # 2️⃣ Ejecutar control
                 self.control_logic()
 
-                # Muestra ka camara
-                if self.debug_image is not None:
-                    cv2.imshow("Orange Detection", self.debug_image)
-                    cv2.waitKey(1)
+                
 
             rate.sleep()
 

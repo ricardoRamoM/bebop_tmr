@@ -13,8 +13,6 @@ class GlobalState(Enum):
     MISSION = 2
     TELEOP = 3
     LANDING = 4
-    EMERGENCY = 5
-
 
 class MissionSupervisor:
 
@@ -27,7 +25,7 @@ class MissionSupervisor:
         self.current_mission = None
 
         self.mission_start_time = None
-        self.max_mission_time = 10.0  # Timeout global
+        self.max_mission_time = 20.0  # Timeout global
 
         # Suscriptor al estado de misión
         rospy.Subscriber("/mission/status", String, self.mission_status_callback)
@@ -53,9 +51,7 @@ class MissionSupervisor:
     # =====================================================
 
     def start_mission(self, mission_name):
-
         rospy.logwarn(f"Current state before mission: {self.state}")
-
         if self.state != GlobalState.IDLE:
             rospy.logwarn("Cannot start mission: not in IDLE")
             return
@@ -66,26 +62,37 @@ class MissionSupervisor:
         if self.state != GlobalState.IDLE:
             rospy.logwarn("Cannot start teleop: not in IDLE")
             return
-
         self.state = GlobalState.TAKEOFF
 
     def request_landing(self):
         if self.state in [GlobalState.MISSION, GlobalState.TELEOP, GlobalState.TAKEOFF]:
             self.state = GlobalState.LANDING
 
-
     def abort_mission(self):  
         rospy.logwarn("Mission aborted")
 
         if self.state == GlobalState.MISSION:
             self.stop_mission()
+            self.force_zero_velocity()
             self.state = GlobalState.LANDING
 
-
+    # 🔥 EMERGENCY = evento que fuerza LANDING
     def emergency(self):
         rospy.logerr("EMERGENCY")
+
+        # 1 Matar misión inmediatamente
         self.stop_mission()
-        self.state = GlobalState.EMERGENCY
+
+        # 2 Cortar movimiento. Forzar velocidad cero
+        self.force_zero_velocity()
+
+        # 3 Limpiar misión
+        self.current_mission = None
+        self.mission_start_time = None
+
+        # 4 Forzar transición directa a LANDING
+        self.state_start_time = None
+        self.state = GlobalState.LANDING
 
 
     def is_teleop_active(self):
@@ -113,8 +120,6 @@ class MissionSupervisor:
         elif self.state == GlobalState.LANDING:
             self.handle_landing()
 
-        elif self.state == GlobalState.EMERGENCY:
-            self.handle_emergency()
 
         self.publish_state()  # 🔥 Siempre publica estado actual
 
@@ -147,6 +152,7 @@ class MissionSupervisor:
     def handle_landing(self):
         if self.state_start_time is None:
             rospy.loginfo("LANDING")
+            self.force_zero_velocity() # Asegurar velocidad cero al aterrizar
             self.movements.landing("automatic")
             self.state_start_time = rospy.Time.now()
             return
@@ -160,22 +166,7 @@ class MissionSupervisor:
             self.state_start_time = None
 
 
-    def handle_emergency(self):
-        if self.state_start_time is None:
-            rospy.logerr("FORCED LANDING (EMERGENCY)")
-            self.movements.landing("automatic")
-            self.state_start_time = rospy.Time.now()
-            return
-
-        elapsed = (rospy.Time.now() - self.state_start_time).to_sec()
-
-        if elapsed > 3.0:
-            self.current_mission = None
-            self.mission_start_time = None
-            self.state = GlobalState.IDLE
-            self.state_start_time = None
-
-
+    
     # =====================================================
     # MISSION MANAGEMENT
     # =====================================================
@@ -190,8 +181,19 @@ class MissionSupervisor:
 
     def stop_mission(self):
         if self.current_process:
-            self.current_process.terminate()
+            try:
+                self.current_process.kill()  # kill inmediato
+            except Exception:
+                pass
             self.current_process = None
+
+    def force_zero_velocity(self):
+        self.movements.reset_twist()
+        #try:
+        #    self.movements.publish_twist()
+        #except AttributeError:
+        #    pass
+
 
 
     def mission_status_callback(self, msg):
@@ -203,13 +205,15 @@ class MissionSupervisor:
         if msg.data == "done":
             rospy.loginfo("Mission reported DONE")
             self.stop_mission()
+            self.force_zero_velocity()
             self.state = GlobalState.LANDING
             #self.state = GlobalState.IDLE
 
         elif msg.data == "failed":
             rospy.logwarn("Mission reported FAILED → EMERGENCY")
             self.stop_mission()
-            self.state = GlobalState.EMERGENCY
+            self.force_zero_velocity()
+            self.state = GlobalState.LANDING
 
 
     def check_timeout(self):
@@ -221,6 +225,7 @@ class MissionSupervisor:
         if elapsed > self.max_mission_time:
             rospy.logwarn("MISSION TIMEOUT")
             self.stop_mission()
+            self.force_zero_velocity()
             self.state = GlobalState.LANDING
 
     def publish_state(self):
