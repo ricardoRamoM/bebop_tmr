@@ -36,6 +36,7 @@ class BebopMovements:
         self.pub_camera = pub_camera
         self.twist = Twist()  # Mensaje de movimiento base (velocidades lineales y angulares)
 
+    
     # ---------------------------
     # Despegue, ya sea que esté en modo automatico o se active desde el modo teleoperado
     # ---------------------------

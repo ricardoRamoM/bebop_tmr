@@ -82,7 +82,7 @@ class BebopTeleop:
         self.pub_camera = rospy.Publisher('bebop/camera_control', Twist, queue_size=1) # Cámara
 
         # Movements (bajo nivel)
-        self.movements = BebopMovements(
+        self.teleop_movements = BebopMovements(
             self.pub_cmd_vel,
             self.pub_takeoff,
             self.pub_land,
@@ -95,7 +95,7 @@ class BebopTeleop:
         #self.mode_flag = 'teleop'  # Podría ser 'automatic' o 'teleop'
 
         # Supervisor (alto nivel)
-        self.supervisor = MissionSupervisor(self.movements)
+        self.supervisor = MissionSupervisor(self.teleop_movements)
         
         # Guarda configuración del teclado (para restaurarla luego)
         self.settings = termios.tcgetattr(sys.stdin)
@@ -110,9 +110,9 @@ class BebopTeleop:
     # ligeramente el ángulo para visualizar al frente.
     # ----------------------------------------------------------
     def init_camera_position(self):
-        self.movements.camera_tilt(-90)  # Mira totalmente hacia abajo
+        self.teleop_movements.camera_tilt(-90)  # Mira totalmente hacia abajo
         rospy.sleep(2)
-        self.movements.camera_tilt(-5)   # Ajusta para ver hacia el frente, antes era 10
+        self.teleop_movements.camera_tilt(-5)   # Ajusta para ver hacia el frente, antes era 10
         rospy.sleep(2)
         rospy.loginfo("Camera Initialized")
 
@@ -176,7 +176,7 @@ class BebopTeleop:
             elif key == '\x03':
                 print("\nLanding before exiting...")
                 self.supervisor.emergency()
-                self.movements.landing("teleop")
+                self.teleop_movements.landing("teleop")
                 rospy.signal_shutdown("\nEnded by Ctrl-C")
                 break
 
@@ -194,25 +194,25 @@ class BebopTeleop:
                 elif key in moveBindings:
                     # Publica el vector Twist para moverse con los valores obtenidos de moveBindings
                     x, y, z, th = moveBindings[key]
-                    self.movements.twist.linear.x = x
-                    self.movements.twist.linear.y = y
-                    self.movements.twist.linear.z = z
-                    self.movements.twist.angular.z = th
-                    self.pub_cmd_vel.publish(self.movements.twist)
+                    self.teleop_movements.twist.linear.x = x
+                    self.teleop_movements.twist.linear.y = y
+                    self.teleop_movements.twist.linear.z = z
+                    self.teleop_movements.twist.angular.z = th
+                    self.pub_cmd_vel.publish(self.teleop_movements.twist)
 
                 elif key in cameraBindings:
                     # Control manual de la cámara
                     pan, tilt = cameraBindings[key]
                     if pan != 0:
-                        self.movements.camera_pan(pan)
+                        self.teleop_movements.camera_pan(pan)
                     if tilt != 0:
-                        self.movements.camera_tilt(tilt)
+                        self.teleop_movements.camera_tilt(tilt)
                     print(f'\nCamera control: pan {pan}°, tilt {tilt}°')
 
                 else:
                     # Si se presiona una tecla desconocida → detiene el dron en ese punto, mas no lo aterriza
-                    self.movements.reset_twist()
-                    self.pub_cmd_vel.publish(self.movements.twist)
+                    self.teleop_movements.reset_twist()
+                    self.pub_cmd_vel.publish(self.teleop_movements.twist)
 
             else:
                 pass  # Si está en automático, no se hace nada con teclas

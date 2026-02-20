@@ -16,8 +16,6 @@
 # angular.y  # Rotación sobre eje Y (rara vez usada)
 # angular.z  # Giro (yaw) (positivo giro izquierda)
 
-
-
 import rospy
 import math
 from geometry_msgs.msg import Twist
@@ -25,35 +23,33 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty
 from tf.transformations import euler_from_quaternion
 
-
 class BebopAdvancedController:
 
-    def __init__(self):
+    def __init__(self, pub_cmd_vel, pub_takeoff, pub_land, pub_camera):
 
-        # Publishers
-        self.vel_pub = rospy.Publisher("/bebop/cmd_vel", Twist, queue_size=10)
-        self.takeoff_pub = rospy.Publisher("/bebop/takeoff", Empty, queue_size=1)
-        self.land_pub = rospy.Publisher("/bebop/land", Empty, queue_size=1)
+        self.pub_cmd_vel = pub_cmd_vel
+        self.pub_takeoff = pub_takeoff
+        self.pub_land = pub_land
+        self.pub_camera = pub_camera
 
-        # Subscriber
         rospy.Subscriber("/bebop/odom", Odometry, self.odom_callback)
 
-        # Estado actual
         self.current_position = None
         self.current_yaw = 0.0
-
-        # Posición inicial (referencia)
         self.initial_position = None
 
-        # Hover target
-        self.hover_target = None
+        self.target_position = None
+        self.navigation_active = False
+        self.hover_active = False
+
+        self.emergency_stop = False
 
         self.rate = rospy.Rate(30)
-        rospy.sleep(1)
 
-    # =====================================
-    # ODOM CALLBACK
-    # =====================================
+    # =====================================================
+    # ODOM
+    # =====================================================
+
     def odom_callback(self, msg):
 
         self.current_position = msg.pose.pose.position
@@ -69,33 +65,45 @@ class BebopAdvancedController:
         (_, _, yaw) = euler_from_quaternion(orientation_list)
         self.current_yaw = yaw
 
-        # Guardar posición inicial automáticamente
         if self.initial_position is None:
             self.initial_position = self.current_position
-            rospy.loginfo("Posición inicial establecida ✔")
-
-    # =====================================
-    # FUNCIONES BÁSICAS
-    # =====================================
-
-    def takeoff(self):
-        self.takeoff_pub.publish(Empty())
-        rospy.sleep(3)
-
-    def land(self):
-        self.land_pub.publish(Empty())
-        rospy.sleep(3)
-
-    def stop(self):
-        self.vel_pub.publish(Twist())
+            rospy.loginfo("✔ Posición inicial fijada")
 
     def wait_for_odometry(self):
         while self.current_position is None and not rospy.is_shutdown():
             rospy.sleep(0.1)
 
-    # =====================================
-    # COORDENADAS RELATIVAS
-    # =====================================
+    # =====================================================
+    # EMERGENCIA
+    # =====================================================
+
+    def activate_emergency(self):
+        rospy.logwarn("🚨 EMERGENCY STOP ACTIVATED")
+        self.emergency_stop = True
+        self.navigation_active = False
+        self.hover_active = False
+        self.stop()
+
+    def clear_emergency(self):
+        self.emergency_stop = False
+
+    # =====================================================
+    # BÁSICOS
+    # =====================================================
+
+    def takeoff(self):
+        if not self.emergency_stop:
+            self.pub_takeoff.publish(Empty())
+
+    def land(self):
+        self.pub_land.publish(Empty())
+
+    def stop(self):
+        self.pub_cmd_vel.publish(Twist())
+
+    # =====================================================
+    # POSICIÓN RELATIVA
+    # =====================================================
 
     def get_relative_position(self):
 
@@ -105,81 +113,98 @@ class BebopAdvancedController:
 
         return rx, ry, rz
 
-    # =====================================
-    # IR A UNA COORDENADA (DIAGONAL REAL)
-    # =====================================
+    # =====================================================
+    # MOVIMIENTO MANUAL (NO BLOQUEANTE)
+    # =====================================================
 
-    def go_to(self, target_x, target_y, target_z,
-              kp=0.8, tolerance=0.05, max_speed=0.4):
+    def send_manual_velocity(self, vx, vy, vz, wz=0.0):
 
-        rospy.loginfo(f"Going to ({target_x}, {target_y}, {target_z})")
+        if self.emergency_stop:
+            return
 
         twist = Twist()
+        twist.linear.x = vx
+        twist.linear.y = vy
+        twist.linear.z = vz
+        twist.angular.z = wz
 
-        while not rospy.is_shutdown():
+        self.pub_cmd_vel.publish(twist)
+
+    # =====================================================
+    # NAVEGACIÓN POR TARGET
+    # =====================================================
+
+    def set_target(self, x, y, z):
+        self.target_position = (x, y, z)
+        self.navigation_active = True
+        self.hover_active = False
+
+    def activate_hover(self):
+        rx, ry, rz = self.get_relative_position()
+        self.target_position = (rx, ry, rz)
+        self.hover_active = True
+        self.navigation_active = False
+
+    # =====================================================
+    # UPDATE (SE LLAMA EN CADA CICLO)
+    # =====================================================
+
+    def update(self):
+
+        if self.emergency_stop:
+            self.stop()
+            return
+
+        if self.navigation_active and self.target_position is not None:
 
             rx, ry, rz = self.get_relative_position()
 
-            error_x = target_x - rx
-            error_y = target_y - ry
-            error_z = target_z - rz
+            error_x = self.target_position[0] - rx
+            error_y = self.target_position[1] - ry
+            error_z = self.target_position[2] - rz
 
             distance = math.sqrt(error_x**2 + error_y**2 + error_z**2)
 
-            if distance < tolerance:
-                break
+            if distance < 0.05:
+                rospy.loginfo("✔ Target alcanzado")
+                self.navigation_active = False
+                self.stop()
+                return
 
-            vx = kp * error_x
-            vy = kp * error_y
-            vz = kp * error_z
+            kp = 0.8
 
-            # Saturación
-            vx = max(min(vx, max_speed), -max_speed)
-            vy = max(min(vy, max_speed), -max_speed)
-            vz = max(min(vz, 0.3), -0.3)
+            vx = max(min(kp * error_x, 0.4), -0.4)
+            vy = max(min(kp * error_y, 0.4), -0.4)
+            vz = max(min(kp * error_z, 0.3), -0.3)
 
-            twist.linear.x = vx
-            twist.linear.y = vy
-            twist.linear.z = vz
+            self.send_manual_velocity(vx, vy, vz)
 
-            self.vel_pub.publish(twist)
-            self.rate.sleep()
-
-        self.stop()
-        rospy.loginfo("Objetivo alcanzado ✔")
-
-    # =====================================
-    # HOVER DINÁMICO (PID continuo)
-    # =====================================
-
-    def hover_activate(self, kp=0.8):
-
-        rospy.loginfo("Hover activado")
-
-        rx, ry, rz = self.get_relative_position()
-        self.hover_target = (rx, ry, rz)
-
-        twist = Twist()
-
-        while not rospy.is_shutdown():
+        elif self.hover_active:
 
             rx, ry, rz = self.get_relative_position()
 
-            error_x = self.hover_target[0] - rx
-            error_y = self.hover_target[1] - ry
-            error_z = self.hover_target[2] - rz
+            error_x = self.target_position[0] - rx
+            error_y = self.target_position[1] - ry
+            error_z = self.target_position[2] - rz
 
-            vx = kp * error_x
-            vy = kp * error_y
-            vz = kp * error_z
+            kp = 0.8
 
-            vx = max(min(vx, 0.3), -0.3)
-            vy = max(min(vy, 0.3), -0.3)
-            vz = max(min(vz, 0.3), -0.3)
+            vx = max(min(kp * error_x, 0.3), -0.3)
+            vy = max(min(kp * error_y, 0.3), -0.3)
+            vz = max(min(kp * error_z, 0.3), -0.3)
 
-            twist.linear.x = vx
-            twist.linear.y = vy
-            twist.linear.z = vz
+            self.send_manual_velocity(vx, vy, vz)
 
-            self.vel_pub.publish(twist)
-            self.rate.sleep()
+    # =====================================================
+    # CÁMARA
+    # =====================================================
+
+    def camera_tilt(self, angle_deg):
+        cam = Twist()
+        cam.angular.y = math.radians(angle_deg)
+        self.pub_camera.publish(cam)
+
+    def camera_pan(self, angle_deg):
+        cam = Twist()
+        cam.angular.z = math.radians(angle_deg)
+        self.pub_camera.publish(cam)
