@@ -158,8 +158,8 @@ class BebopTeleop:
                 self.supervisor.start_mission("mission_square")
             elif key == 'o':
                 self.supervisor.start_mission("mission_orange_window_modified")
-            elif key == 'h':
-                self.supervisor.start_mission("mission_orange_window")
+            elif key == 'm':
+                self.supervisor.start_mission("test_mission")
             
             # ABORTAR MISIÓN (volver a manual)
             elif key == 't':

@@ -16,8 +16,6 @@
 # angular.y  # Rotación sobre eje Y (rara vez usada)
 # angular.z  # Giro (yaw) (positivo giro izquierda)
 
-# Tiempo base de duracion de cada comando (en segundos)
-
 import rospy
 import math
 from geometry_msgs.msg import Twist

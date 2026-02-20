@@ -56,7 +56,8 @@ class MissionSupervisor:
             rospy.logwarn("Cannot start mission: not in IDLE")
             return
         self.current_mission = mission_name
-        self.state = GlobalState.TAKEOFF
+        self.state = GlobalState.TAKEOFF # comentado para pruebas
+        #self.state = GlobalState.MISSION # Quitar despues de las pruebas de controller con odometria
 
     def start_teleop(self):
         if self.state != GlobalState.IDLE:
