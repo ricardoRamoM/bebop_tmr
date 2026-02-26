@@ -22,6 +22,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty
 from tf.transformations import euler_from_quaternion
+from bebop_msgs.msg import Ardrone3PilotingStateAltitudeChanged
 
 class BebopAdvancedController:
 
@@ -33,21 +34,45 @@ class BebopAdvancedController:
         self.pub_camera = pub_camera
 
         rospy.Subscriber("/bebop/odom", Odometry, self.odom_callback)
+        rospy.Subscriber(
+            "/bebop/states/ardrone3/PilotingState/AltitudeChanged",
+            Ardrone3PilotingStateAltitudeChanged,
+            self.altitude_callback
+        )
 
+        # Estado actual
         self.current_position = None
         self.current_yaw = 0.0
+        self.current_altitude = 0.0
+
+        # Referencias iniciales
         self.initial_position = None
+        self.initial_altitude = None
 
-        self.target_position = None
+        # Targets
+        self.target_x = None
+        self.target_y = None
+        self.target_z = None
+        self.target_yaw = None
+
+        # Flags
         self.navigation_active = False
-        self.hover_active = False
-
         self.emergency_stop = False
+
+        # Ganancias (SUAVES para evitar oscilación)
+        self.kp_xy = 0.6
+        self.kd_xy = 0.15
+
+        self.kp_z = 0.8
+        self.kp_yaw = 1.2
+
+        self.prev_error_x = 0
+        self.prev_error_y = 0
 
         self.rate = rospy.Rate(30)
 
     # =====================================================
-    # ODOM
+    # CALLBACKS
     # =====================================================
 
     def odom_callback(self, msg):
@@ -67,30 +92,33 @@ class BebopAdvancedController:
 
         if self.initial_position is None:
             self.initial_position = self.current_position
-            rospy.loginfo("✔ Posición inicial fijada")
+            rospy.loginfo("✔ Posición XY inicial fijada")
+            rospy.loginfo(self.initial_position)
 
-    def wait_for_odometry(self):
-        while self.current_position is None and not rospy.is_shutdown():
-            rospy.sleep(0.1)
+    def altitude_callback(self, msg):
+        self.current_altitude = msg.altitude
 
-    # =====================================================
-    # EMERGENCIA
-    # =====================================================
-
-    def activate_emergency(self):
-        rospy.logwarn("🚨 EMERGENCY STOP ACTIVATED")
-        self.emergency_stop = True
-        self.navigation_active = False
-        self.hover_active = False
-        self.stop()
-
-    def clear_emergency(self):
-        self.emergency_stop = False
+        if self.initial_altitude is None:
+            self.initial_altitude = msg.altitude
+            rospy.loginfo("✔ Altura inicial fijada")
+            rospy.loginfo(self.initial_altitude)
 
     # =====================================================
-    # BÁSICOS
+    # UTIL
     # =====================================================
+    def normalize_angle(self, angle):
+        return math.atan2(math.sin(angle), math.cos(angle))
 
+    def get_relative_position(self):
+        rx = self.current_position.x - self.initial_position.x
+        ry = self.current_position.y - self.initial_position.y
+        rz = self.current_altitude - self.initial_altitude
+        return rx, ry, rz
+    
+
+    # =====================================================
+    # COMANDOS BÁSICOS
+    # =====================================================
     def takeoff(self):
         if not self.emergency_stop:
             self.pub_takeoff.publish(Empty())
@@ -101,110 +129,297 @@ class BebopAdvancedController:
     def stop(self):
         self.pub_cmd_vel.publish(Twist())
 
-    # =====================================================
-    # POSICIÓN RELATIVA
-    # =====================================================
-
-    def get_relative_position(self):
-
-        rx = self.current_position.x - self.initial_position.x
-        ry = self.current_position.y - self.initial_position.y
-        rz = self.current_position.z - self.initial_position.z
-
-        return rx, ry, rz
-
-    # =====================================================
-    # MOVIMIENTO MANUAL (NO BLOQUEANTE)
-    # =====================================================
-
-    def send_manual_velocity(self, vx, vy, vz, wz=0.0):
-
-        if self.emergency_stop:
-            return
-
+    def send_velocity(self, vx, vy, vz, wz=0.0):
         twist = Twist()
-        twist.linear.x = vx
-        twist.linear.y = vy
-        twist.linear.z = vz
-        twist.angular.z = wz
+        twist.linear.x = max(min(vx, 1.0), -1.0)
+        twist.linear.y = max(min(vy, 1.0), -1.0)
+        twist.linear.z = max(min(vz, 1.0), -1.0)
+        twist.angular.z = max(min(wz, 1.0), -1.0)
 
         self.pub_cmd_vel.publish(twist)
 
+    # ---------------------------
+    # DETENER MOVIMIENTO
+    # ---------------------------
+    def reset_twist(self):
+        """
+        Reinicia todos los componentes del Twist a 0
+        para detener cualquier movimiento activo del dron.
+        """
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.linear.y = 0.0
+        twist.linear.z = 0.0
+        twist.angular.x = 0.0
+        twist.angular.y = 0.0
+        twist.angular.z = 0.0
+
+        # Publica el comando de velocidad cero
+        self.pub_cmd_vel.publish(twist) 
+    
+    def publish_twist(self):
+        self.pub_cmd_vel.publish(self.twist)
+
+    def wait_for_odometry(self):
+        while self.current_position is None and not rospy.is_shutdown():
+            rospy.sleep(0.1)  
+    
     # =====================================================
-    # NAVEGACIÓN POR TARGET
+    # TARGETS
     # =====================================================
 
-    def set_target(self, x, y, z):
-        self.target_position = (x, y, z)
+    def set_target_position(self, x, y, z):
+        self.target_x = x
+        self.target_y = y
+        self.target_z = z
+        self.target_yaw = None
         self.navigation_active = True
+
+    def set_target_yaw(self, yaw_deg):
+        self.target_yaw = math.radians(yaw_deg)
+        self.navigation_active = True
+
+    # =====================================================
+    # EMERGENCIA
+    # =====================================================
+
+    def activate_emergency(self):
+        rospy.logwarn("🚨 EMERGENCY STOP ACTIVATED")
+
+        self.emergency_stop = True
+        self.navigation_active = False
         self.hover_active = False
 
-    def activate_hover(self):
-        rx, ry, rz = self.get_relative_position()
-        self.target_position = (rx, ry, rz)
-        self.hover_active = True
-        self.navigation_active = False
+        self.stop()
+        rospy.sleep(0.1)  # pequeña pausa
+        self.pub_land.publish(Empty())
+
+    def clear_emergency(self):
+        self.emergency_stop = False
+   
+    # =====================================================
+    # =====================================================
+    # =====================================================
+    comentario_largo = """
+    # MOVIMIENTOS BLOQUEANTES (METROS REALES)
+    # =====================================================
+
+    def move_forward(self, distance):
+
+        x0, _, _ = self.get_relative_position()
+
+        while not rospy.is_shutdown():
+            rx, _, _ = self.get_relative_position()
+            
+            dx = rx - x0
+            error = distance - dx
+
+            if abs(error) < 0.02:
+                break   
+
+             #velocidad proporcional
+            kp = 0.8
+            speed = max(min(kp * error, 0.5), -0.5)
+
+
+            self.send_velocity(speed, 0, 0)
+            self.rate.sleep()
+
+        self.stop()
+
+    def move_backward(self, distance):
+        self.move_forward(-distance)
+
+    def move_left(self, distance):
+        _, y0, _ = self.get_relative_position()
+
+        while not rospy.is_shutdown():
+            _, ry, _ = self.get_relative_position()
+            
+            dy = ry - y0
+            error = distance - dy
+
+            kp = 0.8
+            if abs(error) < 0.02:
+                break
+
+            speed = max(min(kp * error, 0.5), -0.5)
+
+            self.send_velocity(0, speed, 0)
+            self.rate.sleep()
+
+        self.stop()
+
+    def move_right(self, distance):
+        self.move_left(-distance)
 
     # =====================================================
-    # UPDATE (SE LLAMA EN CADA CICLO)
+    # GIRO CORREGIDO (NO DERIVA)
+    # =====================================================
+    def turn(self, angle_deg):
+
+        yaw0 = self.current_yaw
+        target = math.radians(angle_deg)
+        #direction = 1 if angle_deg > 0 else -1
+        # congelamos posición
+        rx0, ry0, _ = self.get_relative_position()
+
+        while not rospy.is_shutdown():
+            # error yaw
+            current_relative_yaw = self.normalize_angle(self.current_yaw - yaw0)
+            error_yaw = self.normalize_angle(target - current_relative_yaw)
+
+            error_yaw = self.normalize_angle(self.current_yaw - yaw0)
+
+            if abs(error_yaw) < math.radians(2): # Menor a 2 grados (que se convierte en radianes)
+                break
+
+            # corregir drift XY
+            rx, ry, _ = self.get_relative_position()
+
+            error_x = rx0 - rx
+            error_y = ry0 - ry
+
+            kp_v = 0.8
+            kp_wz = 1.2
+            vx = max(min(kp_v * error_x, 0.2), -0.2)
+            vy = max(min(kp_v * error_y, 0.2), -0.2)
+            wz = max(min(kp_wz * error_yaw, 0.4), -0.4)
+
+            self.send_velocity(vx, vy, 0, wz)
+            self.rate.sleep()
+
+        self.stop()
+
+    
+    # =====================================================
+    # CONTROL DE ALTURA
     # =====================================================
 
+    def maintain_altitude(self, target_altitude, kp=0.8):
+        error = target_altitude - self.current_altitude
+        return max(min(kp * error, 0.3), -0.3)
+
+    # =====================================================
+    # CONTROL DE ALTURA A METROS RELATIVOS
+    # =====================================================
+    def go_to_height(self, relative_height):
+
+        target = self.initial_altitude + relative_height
+
+        while not rospy.is_shutdown():
+            error = target - self.current_altitude
+
+            if abs(error) < 0.05:
+                break
+            kp = 0.8
+            vz = max(min(kp * error, 0.3), -0.3)
+            self.send_velocity(0, 0, vz)
+            self.rate.sleep()
+  
+        self.stop()
+
+    # =====================================================
+    # HOVER
+    # =====================================================
+    #def activate_hover(self):
+    #    rx, ry, rz = self.get_relative_position()
+    #    self.target_position = (rx, ry, rz)
+    #    self.hover_active = True
+    #    self.navigation_active = False
+    #    rospy.loginfo("Target:")
+    #    rospy.loginfo(self.target_position)
+
+    #def deactivate_hover(self):
+    #    self.target_position = None
+    #    self.hover_active = False
+    #    self.navigation_active = False
+    """
+    # =====================================================
+    # =====================================================
+    # =====================================================
+    # ---------------MOVIMIENTOS BÁSICOS DE LA CAMARA
+    # Controla el movimiento vertical (tilt) de la cámara.
+    #   tilt: valor angular (grados o radianes según configuración del dron). En este caso son grados
+    # Controla el movimiento horizontal (pan) de la cámara.
+    #   pan: valor angular (grados o radianes según configuración del dron). En este caso son grados
+    # 
+    # =====================================================
+    def camera_tilt(self, tilt_deg):
+        cam = Twist()
+        cam.angular.y = tilt_deg
+        self.pub_camera.publish(cam)
+        print(f'\n Adjusting camera tilt: {tilt_deg} degrees...')
+
+    def camera_pan(self, pan_deg):
+        print(f'\n Adjusting camera pan: {pan_deg} degrees...')
+        cam = Twist()
+        cam.angular.z = pan_deg
+        self.pub_camera.publish(cam)
+
+
+
+    # =====================================================
+    # UPDATE (CONTROL CASCADA PROFESIONAL)
+    # =====================================================
     def update(self):
 
-        if self.emergency_stop:
-            self.stop()
+        if self.emergency_stop or not self.navigation_active:
             return
 
-        if self.navigation_active and self.target_position is not None:
+        rx, ry, rz = self.get_relative_position()
 
-            rx, ry, rz = self.get_relative_position()
+        vx = vy = vz = wz = 0
 
-            error_x = self.target_position[0] - rx
-            error_y = self.target_position[1] - ry
-            error_z = self.target_position[2] - rz
+        # ================= XY PD =================
+        if self.target_x is not None:
 
-            distance = math.sqrt(error_x**2 + error_y**2 + error_z**2)
+            error_x = self.target_x - rx
+            error_y = self.target_y - ry
 
-            if distance < 0.05:
-                rospy.loginfo("✔ Target alcanzado")
-                self.navigation_active = False
-                self.stop()
-                return
+            d_error_x = error_x - self.prev_error_x
+            d_error_y = error_y - self.prev_error_y
 
-            kp = 0.8
+            vx = self.kp_xy * error_x + self.kd_xy * d_error_x
+            vy = self.kp_xy * error_y + self.kd_xy * d_error_y
 
-            vx = max(min(kp * error_x, 0.4), -0.4)
-            vy = max(min(kp * error_y, 0.4), -0.4)
-            vz = max(min(kp * error_z, 0.3), -0.3)
+            self.prev_error_x = error_x
+            self.prev_error_y = error_y
 
-            self.send_manual_velocity(vx, vy, vz)
+            if abs(error_x) < 0.1 and abs(error_y) < 0.1:
+                vx = 0
+                vy = 0
 
-        elif self.hover_active:
+        # ================= Z =================
+        if self.target_z is not None:
 
-            rx, ry, rz = self.get_relative_position()
+            error_z = self.target_z - rz
+            vz = self.kp_z * error_z
 
-            error_x = self.target_position[0] - rx
-            error_y = self.target_position[1] - ry
-            error_z = self.target_position[2] - rz
+            if abs(error_z) < 0.05:
+                vz = 0
 
-            kp = 0.8
+        # ================= YAW =================
+        if self.target_yaw is not None:
 
-            vx = max(min(kp * error_x, 0.3), -0.3)
-            vy = max(min(kp * error_y, 0.3), -0.3)
-            vz = max(min(kp * error_z, 0.3), -0.3)
+            error_yaw = self.normalize_angle(self.target_yaw - self.current_yaw)
+            wz = self.kp_yaw * error_yaw
 
-            self.send_manual_velocity(vx, vy, vz)
+            if abs(error_yaw) < math.radians(2):
+                wz = 0
 
-    # =====================================================
-    # CÁMARA
-    # =====================================================
+        # ================= CHECK FIN =================
+        done_xy = (self.target_x is None) or (abs(self.target_x - rx) < 0.03)
+        done_z = (self.target_z is None) or (abs(self.target_z - rz) < 0.05)
+        done_yaw = (self.target_yaw is None) or (abs(self.normalize_angle(self.target_yaw - self.current_yaw)) < math.radians(2))
 
-    def camera_tilt(self, angle_deg):
-        cam = Twist()
-        cam.angular.y = math.radians(angle_deg)
-        self.pub_camera.publish(cam)
+        if done_xy and done_z and done_yaw:
+            rospy.loginfo("✔ Target alcanzado")
+            rospy.loginfo(self.get_relative_position())
+            self.navigation_active = False
+            self.stop()
+            return
+        
+        rospy.loginfo(f"Error x: {error_x:.3f}")
 
-    def camera_pan(self, angle_deg):
-        cam = Twist()
-        cam.angular.z = math.radians(angle_deg)
-        self.pub_camera.publish(cam)
+        self.send_velocity(vx, vy, vz, wz)

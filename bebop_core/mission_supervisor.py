@@ -29,6 +29,7 @@ class MissionSupervisor:
 
         # Suscriptor al estado de misión
         rospy.Subscriber("/mission/status", String, self.mission_status_callback)
+        
         #self.state_pub = rospy.Publisher("/supervisor/state", String, queue_size=1)
         self.state_pub = rospy.Publisher(
             "/supervisor/state",
@@ -132,7 +133,7 @@ class MissionSupervisor:
     def handle_takeoff(self):
         if self.state_start_time is None:
             rospy.loginfo("TAKEOFF")
-            self.movements.initial_takeoff("automatic")
+            self.movements.takeoff()
             self.state_start_time = rospy.Time.now()
             return
         
@@ -154,7 +155,7 @@ class MissionSupervisor:
         if self.state_start_time is None:
             rospy.loginfo("LANDING")
             self.force_zero_velocity() # Asegurar velocidad cero al aterrizar
-            self.movements.landing("automatic")
+            self.movements.land()
             self.state_start_time = rospy.Time.now()
             return
 
@@ -190,12 +191,6 @@ class MissionSupervisor:
 
     def force_zero_velocity(self):
         self.movements.reset_twist()
-        #try:
-        #    self.movements.publish_twist()
-        #except AttributeError:
-        #    pass
-
-
 
     def mission_status_callback(self, msg):
 

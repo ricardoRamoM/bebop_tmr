@@ -31,21 +31,19 @@ TAKEOFF / LAND
 x → Emergency
 
 MOVEMENTS
-w → Forward
-s → Backward
-a → Left
-d → Right
-q → Rotate Left
-e → Rotate Right
-+ → Ascend
-- → Descend
+---------------------------
+Manual Control:
+   q    w   e       +: up
+   a        d       -: down
+        s   
+---------------------------
 space → Stop (reset twist)
 
-CAMERA
-i → Tilt Up
-k → Tilt Down
-j → Pan Left
-l → Pan Right
+Cam control:
+---------------------------
+   j    i    l       
+        k    
+---------------------------
 
 CTRL+C → Exit safely
 =========================================
@@ -57,8 +55,6 @@ CTRL+C → Exit safely
 
 class BebopTeleopTest:
     def __init__(self):
-
-        
         # Inicializa el nodo ROS
         rospy.init_node('teleop_test_controller')
 
@@ -70,7 +66,7 @@ class BebopTeleopTest:
 
         # Movements (bajo nivel)
         # Crea objeto para manejar movimientos de aterrizaje, despegue y los movimientos automaticos 
-        self.missions_controller = BebopAdvancedController(
+        self.missions_movements = BebopAdvancedController(
             self.pub_cmd_vel,
             self.pub_takeoff,
             self.pub_land,
@@ -114,62 +110,148 @@ class BebopTeleopTest:
 
             if key == '1':
                 rospy.loginfo("TAKEOFF")
-                self.missions_controller.takeoff()
+                self.missions_movements.takeoff()
 
             elif key == '2':
                 rospy.loginfo("LAND")
-                self.missions_controller.land()
+                self.missions_movements.land()
 
             elif key == 'x':
                 rospy.logwarn("EMERGENCY")
-                self.missions_controller.activate_emergency()
+                self.missions_movements.activate_emergency()
+
+            elif key == 'z':
+                rospy.logwarn("CLEAR EMERGENCY")
+                self.missions_movements.clear_emergency()
 
             # =========================
             # MOVEMENT (manual velocity)
             # =========================
 
             elif key == 'w':
-                self.missions_controller.send_manual_velocity(0.3, 0, 0)
+                self.missions_movements.send_velocity(0.3, 0, 0)
 
             elif key == 's':
-                self.missions_controller.send_manual_velocity(-0.3, 0, 0)
+                self.missions_movements.send_velocity(-0.3, 0, 0)
 
             elif key == 'a':
-                self.missions_controller.send_manual_velocity(0, 0.3, 0)
+                self.missions_movements.send_velocity(0, 0.3, 0)
 
             elif key == 'd':
-                self.missions_controller.send_manual_velocity(0, -0.3, 0)
+                self.missions_movements.send_velocity(0, -0.3, 0)
 
             elif key == 'q':
-                self.missions_controller.send_manual_velocity(0, 0, 0, 0.5)
+                self.missions_movements.send_velocity(0, 0, 0, 0.5)
 
             elif key == 'e':
-                self.missions_controller.send_manual_velocity(0, 0, 0, -0.5)
+                self.missions_movements.send_velocity(0, 0, 0, -0.5)
 
             elif key == '+':
-                self.missions_controller.send_manual_velocity(0, 0, 0.3)
+                self.missions_movements.send_velocity(0, 0, 0.3)
 
             elif key == '-':
-                self.missions_controller.send_manual_velocity(0, 0, -0.3)
+                self.missions_movements.send_velocity(0, 0, -0.3)
 
-            elif key == ' ':
-                self.missions_controller.stop()
+            elif key == ' ': # tecla space 
+                self.missions_movements.stop()
 
             # =========================
             # CAMERA
             # =========================
 
             elif key == 'i':
-                self.missions_controller.camera_tilt(5)
+                self.missions_movements.camera_tilt(5)
 
             elif key == 'k':
-                self.missions_controller.camera_tilt(-5)
+                self.missions_movements.camera_tilt(-5)
 
             elif key == 'j':
-                self.missions_controller.camera_pan(-5)
+                self.missions_movements.camera_pan(-5)
 
             elif key == 'l':
-                self.missions_controller.camera_pan(5)
+                self.missions_movements.camera_pan(5)
+            
+            # =========================
+            # NAVEGACIÓN POR TARGET
+            # =========================
+
+            # NAVEGACIÓN POR TARGET
+            elif key == '8':
+                rospy.loginfo("Forward 1m")
+                rx, ry, rz = self.missions_movements.get_relative_position()
+                rospy.loginfo(f"Current RX: {rx}")
+                rospy.loginfo(f"Setting target X: {rx + 1.0}")
+                self.missions_movements.set_target_position(rx + 1.0, ry, rz)
+
+            elif key == '9':
+                rospy.loginfo("Left 1m")
+                rx, ry, rz = self.missions_movements.get_relative_position()
+                rospy.loginfo(f"Current RY: {ry}")
+                rospy.loginfo(f"Setting target Y: {ry + 1.0}")
+                self.missions_movements.set_target_position(rx, ry + 1.0, rz)
+
+            elif key == '0':
+                #rospy.loginfo(self.missions_controller.get_relative_position())
+                rospy.loginfo("Up 1m")
+                rx, ry, rz = self.missions_movements.get_relative_position()
+                rospy.loginfo(f"Current RZ: {rz}")
+                rospy.loginfo(f"Setting target Z: {rz + 1.0}")
+                self.missions_movements.set_target_position(rx, ry, rz + 1.0)
+
+            elif key == 'p':
+                rospy.loginfo("Turn 90°")
+                self.missions_movements.set_target_yaw(90)
+
+
+            # =========================
+            # NAVEGACIÓN POR TARGET
+            #elif key == '8':
+            #    rospy.loginfo("SET TARGET +1m X")
+            #    self.missions_controller.wait_for_odometry()
+            #    rx, ry, rz = self.missions_controller.get_relative_position()
+            #    self.missions_controller.set_target(1.0, ry, rz)
+            #elif key == '9':
+            #    rospy.loginfo("SET TARGET +1m Y")
+            #    self.missions_controller.wait_for_odometry()
+            #    rx, ry, rz = self.missions_controller.get_relative_position()
+            #    self.missions_controller.set_target(rx, 1.0, rz)
+            #elif key == '0':
+            #    rospy.loginfo("SET TARGET +1m Z")
+            #    self.missions_controller.wait_for_odometry()
+            #    rx, ry, rz = self.missions_controller.get_relative_position()
+            #    self.missions_controller.set_target(rx, ry, 1.0)
+            # =========================
+            # HOVER
+            #elif key == 'h':
+            #    rospy.loginfo("ACTIVATE HOVER")
+            #    self.missions_controller.activate_hover()   
+            #elif key == 'g':
+            #    rospy.loginfo("DEACTIVATE HOVER")
+            #    self.missions_controller.deactivate_hover() 
+            # =========================
+            # MOVEMENTS
+            #elif key == 'm':
+            #    rospy.loginfo("Forward")
+            #    self.missions_controller.move_forward(0.75)   
+            #elif key == 'n':
+            #    rospy.loginfo("Backward")
+            #    self.missions_controller.move_backward(0.75)
+            #elif key == 'b':
+            #    rospy.loginfo("Right")
+            #    self.missions_controller.move_right(0.75)    
+            #elif key == 'v':
+            #    rospy.loginfo("Left")
+            #    self.missions_controller.move_left(0.75)
+            #elif key == 'p':
+            #    rospy.loginfo("turn left")
+            #    self.missions_controller.turn(90)
+            #elif key == 'c':
+            #    rospy.loginfo("mant alt")
+            #    vz = self.missions_controller.maintain_altitude(1.5)
+            #    self.missions_controller.send_manual_velocity(0, 0, vz)
+            #elif key == 'f':
+            #    rospy.loginfo("go_to_height")
+            #    self.missions_controller.go_to_height(1.75)
 
             # =========================
             # EXIT
@@ -177,14 +259,14 @@ class BebopTeleopTest:
 
             elif key == '\x03':
                 rospy.loginfo("Landing before exit...")
-                self.missions_controller.land()
+                self.missions_movements.land()
                 rospy.signal_shutdown("Ctrl+C pressed")
                 break
 
             # IMPORTANTE:
             # si estás usando navegación por target,
             # debes llamar update() en cada ciclo
-            self.missions_controller.update()
+            self.missions_movements.update()
 
             rate.sleep()
 

@@ -107,7 +107,7 @@ class BebopMovements:
         rospy.sleep(sleep)
     
     def publish_twist(self):
-        self.cmd_vel_pub.publish(self.twist)
+        self.pub_cmd_vel.publish(self.twist)
 
 
 # ------------------------------------------ MOVIMIENTOS BÁSICOS DEL DRON ------------------------------------------
